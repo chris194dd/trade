@@ -7849,7 +7849,7 @@
             document.getElementById('positionsTable').innerHTML = `
     <tr>${headerHtml}</tr>
     ${rows.map(r => {const isBest = r.p.isin === bestIsin,isWorst = r.p.isin === worstIsin;const extreme = isBest || isWorst ? 'perf-extreme' : '';const badge = isBest ? '<span class="perf-badge best">Bester</span>' : (isWorst ? '<span class="perf-badge worst">Schwächster</span>' : '');return `<tr>
-      <td class="name"><span class="namelink" data-isin="${r.p.isin}">${r.sec?.name || r.p.isin}</span>${badge}<span class="isin">${r.p.isin}${r.sec?.symbol ? (' · ' + r.sec.symbol) : ''}</span></td>
+      <td class="name"><span class="namelink" data-isin="${r.p.isin}">${r.sec?.name || r.p.isin}</span>${badge}<button class="findbtn" data-edit-isin="${r.p.isin}" title="Wertpapier bearbeiten">✎</button><span class="isin">${r.p.isin}${r.sec?.symbol ? (' · ' + r.sec.symbol) : ''}</span></td>
       <td data-label="Bestand">${fmtNum(r.shares)}</td>
       <td data-label="Ø Kosten">${r.avgCost ? fmtEUR(r.avgCost) : '—'}</td>
       <td data-label="Investiert">${fmtEUR(r.invested)}</td>
@@ -7869,6 +7869,10 @@
   `
             ;
             document.querySelectorAll('#positionsTable .namelink').forEach(el => el.addEventListener('click', () => openDetail(el.dataset.isin)));
+            document.querySelectorAll('#positionsTable .findbtn[data-edit-isin]').forEach(el => el.addEventListener('click', e => {
+                e.stopPropagation();
+                openSecurityEdit(el.dataset.editIsin);
+            }));
             document.querySelectorAll('#positionsTable th.sortable').forEach(el => {
                 el.addEventListener('click', () => {
                     const key = el.dataset.key;
@@ -8087,9 +8091,15 @@
             ];
 
             document.getElementById('detailContent').innerHTML = `
-    <h2 class="section-title">${
+    <div class="row" style="justify-content:space-between; align-items:flex-start;">
+      <h2 class="section-title">${
+
             sec?.name || isin}</h2>
-    <div class="small muted" style="margin-bottom:14px;">${isin}${sec?.wkn ? (' · WKN ' + sec.wkn) : ''}${sec?.symbol ? (' · Kürzel ' + sec.symbol) : ''} · ${sec?.art || ''}</div>
+      <button class="btn ghost small" id="detailEditBtn">Bearbeiten</button>
+    </div>
+    <div class="small muted" style="margin-bottom:14px;">${
+
+            isin}${sec?.wkn ? (' · WKN ' + sec.wkn) : ''}${sec?.symbol ? (' · Kürzel ' + sec.symbol) : ''} · ${sec?.art || ''}</div>
     <div class="hero">${stats.map(s => `<div class="stat ${s.cls || ''}"><div class="label">${s.label}</div><div class="value" style="font-size:19px;">${s.value}</div></div>`).join('')}</div>
     <h2 class="section-title">Bestand im Zeitverlauf</h2>
     <div class="card chartbox">${
@@ -8099,6 +8109,7 @@
             acts.slice().reverse().map(a => renderActivityRow(a, ledger.detailsByActId[a.id])).join('') || '<div class="empty">Keine Aktivitäten.</div>'}</div>
   `
             ;
+            document.getElementById('detailEditBtn').addEventListener('click', () => openSecurityEdit(isin));
             wireActivityRows('#detailActivities');
         }
 
