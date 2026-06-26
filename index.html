@@ -1204,6 +1204,45 @@
             </div>
         </div>
 
+        <div class="modal-overlay" id="secEditModalOverlay">
+            <div class="modal">
+                <h3>Wertpapier bearbeiten</h3>
+                <p class="small muted">
+                    ISIN: 
+                    <span id="secEditIsinLabel"></span>
+                     (nicht änderbar)
+                </p>
+                <input type="hidden" id="secEditIsin">
+                <div class="formgrid">
+                    <div class="full">
+                        <label>Name</label>
+                        <input id="secEditName">
+                    </div>
+                    <div>
+                        <label>Kürzel (für Kursabfrage)</label>
+                        <input id="secEditSymbol" placeholder="z.B. AAPL, SAP.DE">
+                    </div>
+                    <div>
+                        <label>WKN</label>
+                        <input id="secEditWkn">
+                    </div>
+                    <div class="full">
+                        <label>Art</label>
+                        <select id="secEditArt">
+                            <option>Aktie</option>
+                            <option>ETF</option>
+                            <option>Fond</option>
+                            <option>Krypto</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="row" style="margin-top:18px; justify-content:flex-end;">
+                    <button class="btn ghost" id="secEditCancel">Abbrechen</button>
+                    <button class="btn" id="secEditSave">Speichern</button>
+                </div>
+            </div>
+        </div>
+
         <div class="modal-overlay" id="modalOverlay">
             <div class="modal">
                 <h3 id="modalTitle">Aktivität erfassen</h3>
@@ -7332,8 +7371,12 @@
       <div><div class="pname">${s.name}</div><div class="pisin">${s.isin}${s.symbol ? (' · ' + s.symbol) : ''}</div></div>
       <input type="number" step="any" class="priceInput" data-isin="${s.isin}" value="${p ? p.price : ''}" placeholder="Kurs €">
       <button class="btn ghost small fetchOneBtn" data-isin="${s.isin}">Abrufen</button>
-      <div class="small muted">${p ? (p.source + ' · ' + stamp) : 'noch kein Kurs'} ${!s.symbol ? '<button class=\"findbtn\" data-find-isin=\"' + s.isin + '\">Kürzel finden</button>' : ''}</div>
+      <div class="small muted">${p ? (p.source + ' · ' + stamp) : 'noch kein Kurs'}
+        <button class="findbtn" data-find-isin="${s.isin}">Kürzel finden</button>
+        <button class="findbtn" data-edit-isin="${s.isin}">Bearbeiten</button>
+      </div>
     </div>`
+
                 ;
             }).join('') || '<div class="empty">Noch keine Wertpapiere. Importiere zuerst deine Bestandsdaten.</div>';
             document.querySelectorAll('.priceInput').forEach(el => el.addEventListener('change', () => saveManualPrice(el.dataset.isin, el.value)));
@@ -7344,9 +7387,46 @@
                 el.disabled = false;
                 el.textContent = 'Abrufen';
             }));
-            document.querySelectorAll('#pricesList .findbtn').forEach(el => el.addEventListener('click', () => openSymbolFinder(el.dataset.findIsin)));
+            document.querySelectorAll('#pricesList .findbtn[data-find-isin]').forEach(el => el.addEventListener('click', () => openSymbolFinder(el.dataset.findIsin)));
+            document.querySelectorAll('#pricesList .findbtn[data-edit-isin]').forEach(el => el.addEventListener('click', () => openSecurityEdit(el.dataset.editIsin)));
         }
         document.getElementById('refreshAllPricesBtn').addEventListener('click', refreshAllPricesPage);
+
+        /* ---------- Edit existing security (name, symbol, WKN, Art) ---------- */
+        function openSecurityEdit(isin) {
+            const sec = secByIsin(isin);
+            if (!sec)
+                return;
+            document.getElementById('secEditIsinLabel').textContent = isin;
+            document.getElementById('secEditIsin').value = isin;
+            document.getElementById('secEditName').value = sec.name || '';
+            document.getElementById('secEditSymbol').value = sec.symbol || '';
+            document.getElementById('secEditWkn').value = sec.wkn || '';
+            document.getElementById('secEditArt').value = sec.art || 'Aktie';
+            document.getElementById('secEditModalOverlay').classList.add('show');
+        }
+        async function saveSecurityEdit() {
+            const isin = document.getElementById('secEditIsin').value;
+            const name = document.getElementById('secEditName').value.trim();
+            if (!name) {
+                alert('Name darf nicht leer sein.');
+                return;
+            }
+            await db.collection(COL_SEC).doc(isin).update({
+                name,
+                symbol: document.getElementById('secEditSymbol').value.trim() || null,
+                wkn: document.getElementById('secEditWkn').value.trim() || null,
+                art: document.getElementById('secEditArt').value,
+            });
+            document.getElementById('secEditModalOverlay').classList.remove('show');
+            await loadAll();
+        }
+        document.getElementById('secEditCancel').addEventListener('click', () => document.getElementById('secEditModalOverlay').classList.remove('show'));
+        document.getElementById('secEditModalOverlay').addEventListener('click', e => {
+            if (e.target.id === 'secEditModalOverlay')
+                e.currentTarget.classList.remove('show');
+        });
+        document.getElementById('secEditSave').addEventListener('click', saveSecurityEdit);
 
         /* ---------- Rendering ---------- */
         function renderAll() {
