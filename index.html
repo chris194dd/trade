@@ -546,6 +546,35 @@
         font-size: 13px;
     }
 
+    .seg {
+        display: inline-flex;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        overflow: hidden;
+    }
+
+    .seg button {
+        appearance: none;
+        border: none;
+        background: var(--card);
+        color: var(--muted);
+        font-family: var(--body);
+        font-weight: 600;
+        font-size: 12.5px;
+        padding: 7px 13px;
+        cursor: pointer;
+        border-right: 1px solid var(--border);
+    }
+
+    .seg button:last-child {
+        border-right: none;
+    }
+
+    .seg button.active {
+        background: var(--fg);
+        color: var(--bg);
+    }
+
     .muted {
         color: var(--muted);
     }
@@ -1048,12 +1077,14 @@
             <section class="view" id="view-positions">
                 <h2 class="section-title">Wertpapiere</h2>
                 <div class="row" style="margin-bottom:12px; justify-content:space-between;">
-                    <label class="checkrow">
-                        <input type="checkbox" id="hideZeroToggle" checked>
-                         Nur gehaltene Positionen (Bestand &gt; 0)
-                    </label>
+                    <div class="seg" id="positionsViewSeg">
+                        <button data-mode="held" class="active">Gehalten</button>
+                        <button data-mode="closed">Verkauft</button>
+                        <button data-mode="all">Alle</button>
+                    </div>
                     <input type="search" id="positionsSearch" placeholder="Suche nach Name/ISIN…" style="max-width:220px;">
                 </div>
+                <div id="closedSummaryCard" style="display:none;"></div>
                 <div class="card tablewrap">
                     <table class="ledger cardify" id="positionsTable"></table>
                 </div>
@@ -7560,7 +7591,12 @@
             wireActivityRows('#recentActivities');
         }
 
-        /* ---------- Wertpapiere (sortable, break-even, totals, search) ---------- */
+        /* ---------- Wertpapiere (sortable, break-even, totals, search, 3 view modes) ---------- */
+        let positionsViewMode = 'held';
+        let closedSort = {
+            key: 'result',
+            dir: -1
+        };
         const POSITIONS_COLUMNS = [
         {
             key: 'name',
@@ -7596,6 +7632,38 @@
             label: 'Div.'
         },
         ];
+        const CLOSED_COLUMNS = [
+        {
+            key: 'name',
+            label: 'Wertpapier'
+        }, {
+            key: 'totalBought',
+            label: 'Gekauft (Stk)'
+        }, {
+            key: 'totalSold',
+            label: 'Verkauft (Stk)'
+        },
+        {
+            key: 'invested',
+            label: 'Investiert (gesamt)'
+        }, {
+            key: 'realizedPL',
+            label: 'Realisiert'
+        }, {
+            key: 'dividends',
+            label: 'Dividenden'
+        },
+        {
+            key: 'result',
+            label: 'Gesamtergebnis'
+        }, {
+            key: 'returnPct',
+            label: 'Rendite %'
+        }, {
+            key: 'period',
+            label: 'Zeitraum'
+        },
+        ];
         function sortRows(rows) {
             const {key, dir} = positionsSort;
             return rows.slice().sort((a, b) => {
@@ -7610,11 +7678,46 @@
                 return (av - bv) * dir;
             });
         }
-        function renderPositions() {
+        function closedPositionsSummary() {
             const pos = computePositions();
-            const hideZero = document.getElementById('hideZeroToggle').checked;
+            return Object.values(pos).filter(p => p.shares <= 1e-9 && (p.realizedPL !== 0 || p.dividends !== 0 || p.totalBuyVolume > 0)).map(p => {
+                const sec = secByIsin(p.isin);
+                const acts = state.activities.filter(a => a.isin === p.isin);
+                const buys = acts.filter(a => a.type === 'buy'),
+                    sells = acts.filter(a => a.type === 'sell');
+                const totalBought = buys.reduce((s, a) => s + a.shares, 0);
+                const totalSold = sells.reduce((s, a) => s + a.shares, 0);
+                const firstDate = buys.length ? buys.map(a => a.date).sort()[0] : null;
+                const lastSellDate = sells.length ? sells.map(a => a.date).sort().slice(-1)[0] : null;
+                const result = p.realizedPL + p.dividends;
+                const returnPct = p.totalBuyVolume > 0 ? result / p.totalBuyVolume * 100 : null;
+                return {
+                    isin: p.isin,
+                    sec,
+                    totalBought,
+                    totalSold,
+                    invested: p.totalBuyVolume,
+                    realizedPL: p.realizedPL,
+                    dividends: p.dividends,
+                    result,
+                    returnPct,
+                    firstDate,
+                    lastSellDate,
+                    period: firstDate && lastSellDate ? `${fmtDate(firstDate)} – ${fmtDate(lastSellDate)}` : '—'
+                };
+            });
+        }
+        function renderPositions() {
+            if (positionsViewMode === 'closed')
+                renderClosedPositions();
+            else
+                renderHeldOrAllPositions();
+        }
+        function renderHeldOrAllPositions() {
+            document.getElementById('closedSummaryCard').style.display = 'none';
+            const pos = computePositions();
             const search = (document.getElementById('positionsSearch').value || '').trim().toLowerCase();
-            let rows = Object.values(pos).filter(p => hideZero ? p.shares > 1e-9 : (p.shares > 1e-9 || p.realizedPL !== 0 || p.dividends !== 0)).map(p => {
+            let rows = Object.values(pos).filter(p => positionsViewMode === 'held' ? p.shares > 1e-9 : (p.shares > 1e-9 || p.realizedPL !== 0 || p.dividends !== 0)).map(p => {
                 const sec = secByIsin(p.isin);
                 const priceInfo = state.prices[p.isin];
                 const price = priceInfo?.price;
@@ -7699,7 +7802,91 @@
                 });
             });
         }
-        document.getElementById('hideZeroToggle').addEventListener('change', renderPositions);
+        function renderClosedPositions() {
+            const search = (document.getElementById('positionsSearch').value || '').trim().toLowerCase();
+            let rows = closedPositionsSummary();
+            if (search)
+                rows = rows.filter(r => (r.sec?.name || '').toLowerCase().includes(search) || r.isin.toLowerCase().includes(search));
+            rows = rows.slice().sort((a, b) => {
+                const {key, dir} = closedSort;
+                let av = key === 'name' ? (a.sec?.name || '') : (key === 'period' ? (a.lastSellDate || '') : a[key]);
+                let bv = key === 'name' ? (b.sec?.name || '') : (key === 'period' ? (b.lastSellDate || '') : b[key]);
+                if (av == null)
+                    av = -Infinity;
+                if (bv == null)
+                    bv = -Infinity;
+                if (typeof av === 'string')
+                    return av.localeCompare(bv) * dir;
+                return (av - bv) * dir;
+            });
+
+            const sumInvested = rows.reduce((s, r) => s + r.invested, 0);
+            const sumRealized = rows.reduce((s, r) => s + r.realizedPL, 0);
+            const sumDividends = rows.reduce((s, r) => s + r.dividends, 0);
+            const sumResult = rows.reduce((s, r) => s + r.result, 0);
+            const overallReturnPct = sumInvested > 0 ? sumResult / sumInvested * 100 : null;
+            const tileCls = v => v == null ? '' : (v >= 0 ? 'tile-pos' : 'tile-neg');
+
+            document.getElementById('closedSummaryCard').style.display = rows.length ? 'block' : 'none';
+            document.getElementById('closedSummaryCard').innerHTML = `
+    <div class="card">
+      <h3 style="font-family:var(--display); font-size:15px; margin:0 0 10px;">Bilanz aller verkauften Wertpapiere (${
+            rows.length})</h3>
+      <div class="hero" style="margin-bottom:0;">
+        <div class="stat"><div class="label">Investiert (gesamt)</div><div class="value">${
+            fmtEUR(sumInvested)}</div></div>
+        <div class="stat ${tileCls(sumRealized)}"><div class="label">Realisiert (Verkäufe)</div><div class="value">${fmtEUR(sumRealized)}</div></div>
+        <div class="stat"><div class="label">Dividenden (Haltedauer)</div><div class="value">${fmtEUR(sumDividends)}</div></div>
+        <div class="stat ${tileCls(sumResult)}"><div class="label">Gesamtergebnis</div><div class="value">${fmtEUR(sumResult)}</div></div>
+        <div class="stat ${tileCls(overallReturnPct)}"><div class="label">Rendite %</div><div class="value">${overallReturnPct != null ? fmtPct(overallReturnPct) : 'n/v'}</div></div>
+      </div>
+    </div>`
+
+            ;
+
+            const headerHtml = CLOSED_COLUMNS.map(c => {
+                const active = closedSort.key === c.key;
+                const arrow = active ? (closedSort.dir === 1 ? '▲' : '▼') : '';
+                return `<th class="sortable" data-key="${c.key}" style="${c.key === 'name' ? 'text-align:left' : ''}">${c.label}<span class="arrow">${arrow}</span></th>`;
+            }).join('');
+
+            document.getElementById('positionsTable').innerHTML = `
+    <tr>${headerHtml}</tr>
+    ${rows.map(r => `<tr>
+      <td class="name"><span class="namelink" data-isin="${r.isin}">${r.sec?.name || r.isin}</span><span class="isin">${r.isin}</span></td>
+      <td data-label="Gekauft (Stk)">${fmtNum(r.totalBought)}</td>
+      <td data-label="Verkauft (Stk)">${fmtNum(r.totalSold)}</td>
+      <td data-label="Investiert (gesamt)">${fmtEUR(r.invested)}</td>
+      <td data-label="Realisiert" class="${perfClass(r.realizedPL)}">${fmtEUR(r.realizedPL)}</td>
+      <td data-label="Dividenden">${fmtEUR(r.dividends)}</td>
+      <td data-label="Gesamtergebnis" class="${perfClass(r.result)}">${fmtEUR(r.result)}</td>
+      <td data-label="Rendite %" class="${perfClass(r.returnPct)}">${r.returnPct != null ? fmtPct(r.returnPct) : '—'}</td>
+      <td data-label="Zeitraum">${r.period}</td>
+    </tr>`).join('') || `<tr><td colspan="${CLOSED_COLUMNS.length}" class="empty">Noch keine vollständig verkauften Wertpapiere.</td></tr>`}
+  `
+            ;
+            document.querySelectorAll('#positionsTable .namelink').forEach(el => el.addEventListener('click', () => openDetail(el.dataset.isin)));
+            document.querySelectorAll('#positionsTable th.sortable').forEach(el => {
+                el.addEventListener('click', () => {
+                    const key = el.dataset.key;
+                    if (closedSort.key === key)
+                        closedSort.dir *= -1;
+                    else {
+                        closedSort.key = key;
+                        closedSort.dir = 1;
+                    }
+                    renderClosedPositions();
+                });
+            });
+        }
+        document.querySelectorAll('#positionsViewSeg button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('#positionsViewSeg button').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                positionsViewMode = btn.dataset.mode;
+                renderPositions();
+            });
+        });
         document.getElementById('positionsSearch').addEventListener('input', renderPositions);
 
         /* ---------- Stock detail view ---------- */
