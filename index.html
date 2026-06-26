@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Depot</title>
+<link rel="manifest" href="data:application/json,{%22name%22:%22Depot%22,%22display%22:%22standalone%22,%22start_url%22:%22.%22,%22background_color%22:%22%23F6F3EC%22,%22theme_color%22:%22%231C2430%22}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<style>
+:root{
+  --paper:#F6F3EC;
+  --ink:#1C2430;
+  --muted:#79716350;
+  --muted-text:#6B6457;
+  --brass:#A8814C;
+  --brass-soft:#EFE4D2;
+  --pos:#2E6F52;
+  --pos-soft:#E4EFE8;
+  --neg:#A6433E;
+  --neg-soft:#F4E5E2;
+  --card:#FFFFFF;
+  --border:#E2DCCB;
+  --display:'Fraunces',serif;
+  --body:'Inter',system-ui,sans-serif;
+  --mono:'IBM Plex Mono',monospace;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:var(--body);
+  -webkit-font-smoothing:antialiased;
+  padding-bottom:64px;
+}
+::selection{background:var(--brass-soft);}
+a{color:inherit;}
+
+/* Header */
+header.top{
+  position:sticky; top:0; z-index:20;
+  background:var(--paper);
+  border-bottom:1px solid var(--border);
+  padding:18px 20px 0 20px;
+}
+.brand{
+  display:flex; align-items:baseline; justify-content:space-between;
+  margin-bottom:14px;
+}
+.brand h1{
+  font-family:var(--display);
+  font-weight:600;
+  font-size:26px;
+  margin:0;
+  letter-spacing:-0.01em;
+}
+.brand .sub{
+  font-size:12px; color:var(--muted-text); font-family:var(--mono);
+  letter-spacing:.02em;
+}
+nav.tabs{
+  display:flex; gap:4px; overflow-x:auto; padding-bottom:0;
+  scrollbar-width:none;
+}
+nav.tabs::-webkit-scrollbar{display:none;}
+nav.tabs button{
+  appearance:none; border:none; background:none; cursor:pointer;
+  font-family:var(--body); font-size:13.5px; font-weight:600;
+  color:var(--muted-text);
+  padding:10px 14px 12px 14px;
+  border-bottom:2px solid transparent;
+  white-space:nowrap;
+}
+nav.tabs button.active{ color:var(--ink); border-bottom-color:var(--brass); }
+nav.tabs button:focus-visible{ outline:2px solid var(--brass); outline-offset:2px; }
+
+main{ max-width:920px; margin:0 auto; padding:20px 16px 40px; }
+.view{ display:none; }
+.view.active{ display:block; animation:fade .25s ease; }
+@keyframes fade{ from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;} }
+
+/* Hero stat row */
+.hero{
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+  gap:1px; background:var(--border);
+  border:1px solid var(--border); border-radius:14px; overflow:hidden;
+  margin-bottom:22px;
+}
+.hero .stat{ background:var(--card); padding:18px 16px; }
+.hero .stat .label{ font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted-text); margin-bottom:6px; }
+.hero .stat .value{ font-family:var(--display); font-size:25px; font-weight:600; line-height:1.1; }
+.hero .stat .value.pos{ color:var(--pos); }
+.hero .stat .value.neg{ color:var(--neg); }
+.hero .stat .delta{ font-family:var(--mono); font-size:12px; margin-top:4px; color:var(--muted-text); }
+
+h2.section-title{
+  font-family:var(--display); font-weight:600; font-size:18px;
+  margin:0 0 12px; display:flex; align-items:center; gap:8px;
+}
+.card{
+  background:var(--card); border:1px solid var(--border); border-radius:14px;
+  padding:16px; margin-bottom:16px;
+}
+
+/* Position table */
+table.ledger{ width:100%; border-collapse:collapse; font-size:13.5px; }
+table.ledger th{
+  text-align:right; font-size:10.5px; text-transform:uppercase; letter-spacing:.05em;
+  color:var(--muted-text); font-weight:600; padding:0 8px 8px 8px; border-bottom:1px solid var(--border);
+}
+table.ledger th:first-child, table.ledger td:first-child{ text-align:left; }
+table.ledger td{ padding:10px 8px; border-bottom:1px solid var(--border); font-family:var(--mono); text-align:right; }
+table.ledger td.name{ font-family:var(--body); font-weight:600; text-align:left; }
+table.ledger td.name .isin{ font-family:var(--mono); font-weight:400; font-size:11px; color:var(--muted-text); display:block; }
+table.ledger tr:last-child td{ border-bottom:none; }
+table.ledger td.pos{ color:var(--pos); }
+table.ledger td.neg{ color:var(--neg); }
+.pricebadge{ font-size:10px; padding:1px 6px; border-radius:20px; margin-left:6px; font-family:var(--body); }
+.pricebadge.live{ background:var(--pos-soft); color:var(--pos); }
+.pricebadge.stale{ background:var(--brass-soft); color:var(--brass); }
+.pricebadge.missing{ background:var(--neg-soft); color:var(--neg); }
+
+/* Buttons & forms */
+button.btn{
+  appearance:none; border:1px solid var(--ink); background:var(--ink); color:var(--paper);
+  font-family:var(--body); font-weight:600; font-size:13.5px;
+  padding:10px 16px; border-radius:9px; cursor:pointer;
+}
+button.btn.ghost{ background:transparent; color:var(--ink); }
+button.btn.small{ padding:6px 10px; font-size:12.5px; border-radius:7px; }
+button.btn:focus-visible{ outline:2px solid var(--brass); outline-offset:2px; }
+button.btn:disabled{ opacity:.5; cursor:not-allowed; }
+
+.formgrid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.formgrid .full{ grid-column:1/-1; }
+label{ display:block; font-size:11.5px; color:var(--muted-text); margin-bottom:4px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; }
+input,select{
+  width:100%; font-family:var(--mono); font-size:14px; padding:8px 10px;
+  border:1px solid var(--border); border-radius:8px; background:var(--paper); color:var(--ink);
+}
+input:focus,select:focus{ outline:2px solid var(--brass); outline-offset:1px; }
+
+.row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.muted{ color:var(--muted-text); }
+.small{ font-size:12px; }
+.banner{
+  border:1px solid var(--brass); background:var(--brass-soft); border-radius:10px;
+  padding:12px 14px; font-size:13.5px; margin-bottom:16px;
+}
+.banner.error{ border-color:var(--neg); background:var(--neg-soft); }
+.banner.ok{ border-color:var(--pos); background:var(--pos-soft); }
+
+/* Activities list */
+.activity-row{
+  display:grid; grid-template-columns:64px 1fr auto; gap:12px; align-items:center;
+  padding:11px 4px; border-bottom:1px solid var(--border); font-size:13.5px;
+}
+.activity-row:last-child{ border-bottom:none; }
+.tag{ font-family:var(--mono); font-size:10.5px; text-transform:uppercase; padding:3px 7px; border-radius:5px; text-align:center; letter-spacing:.03em; }
+.tag.buy{ background:var(--pos-soft); color:var(--pos); }
+.tag.sell{ background:var(--neg-soft); color:var(--neg); }
+.tag.dividend{ background:var(--brass-soft); color:var(--brass); }
+.tag.cost{ background:#EAEAEA; color:#555; }
+.activity-row .meta{ color:var(--muted-text); font-size:11.5px; }
+.activity-row .amt{ font-family:var(--mono); text-align:right; white-space:nowrap; }
+
+/* Stamp (signature element for Verlauf) */
+.stamp-wrap{ display:flex; align-items:center; gap:18px; flex-wrap:wrap; margin-bottom:20px; }
+.stamp{
+  width:104px; height:104px; border-radius:50%;
+  border:2.5px solid var(--brass); color:var(--brass);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  transform:rotate(-8deg);
+  font-family:var(--display); text-align:center; flex:0 0 auto;
+  position:relative;
+}
+.stamp::before{
+  content:''; position:absolute; inset:7px; border:1px dashed var(--brass); border-radius:50%;
+}
+.stamp .d1{ font-size:10px; letter-spacing:.1em; text-transform:uppercase; }
+.stamp .d2{ font-size:18px; font-weight:700; line-height:1.05; }
+.stamp .d3{ font-size:10px; letter-spacing:.05em; }
+
+.modal-overlay{
+  position:fixed; inset:0; background:rgba(28,36,48,.4); z-index:50;
+  display:none; align-items:flex-end; justify-content:center;
+}
+.modal-overlay.show{ display:flex; }
+.modal{
+  background:var(--card); border-radius:18px 18px 0 0; padding:22px 20px 28px;
+  width:100%; max-width:520px; max-height:88vh; overflow-y:auto;
+  animation:slideup .25s ease;
+}
+@media (min-width:640px){
+  .modal-overlay{ align-items:center; }
+  .modal{ border-radius:16px; }
+}
+@keyframes slideup{ from{ transform:translateY(24px); opacity:0;} to{ transform:none; opacity:1;} }
+.modal h3{ font-family:var(--display); font-size:19px; margin:0 0 16px; }
+
+.fab{
+  position:fixed; right:18px; bottom:22px; z-index:30;
+  width:54px; height:54px; border-radius:50%; border:none;
+  background:var(--ink); color:var(--paper); font-size:26px; line-height:1;
+  cursor:pointer; box-shadow:0 6px 18px rgba(28,36,48,.25);
+}
+.fab:focus-visible{ outline:2px solid var(--brass); outline-offset:2px; }
+
+.empty{ text-align:center; padding:40px 20px; color:var(--muted-text); }
+.empty .big{ font-family:var(--display); font-size:17px; color:var(--ink); margin-bottom:6px; }
+
+@media (max-width:480px){
+  .formgrid{ grid-template-columns:1fr; }
+  .hero .stat .value{ font-size:21px; }
+}
+@media (prefers-reduced-motion:reduce){
+  *{ animation:none !important; transition:none !important; }
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <h1>Depot</h1>
+    <div class="sub" id="lastSync">—</div>
+  </div>
+  <nav class="tabs">
+    <button data-view="dashboard" class="active">Übersicht</button>
+    <button data-view="positions">Wertpapiere</button>
+    <button data-view="activities">Aktivitäten</button>
+    <button data-view="history">Verlauf</button>
+    <button data-view="settings">Einstellungen</button>
+  </nav>
+</header>
+
+<main>
+
+  <section class="view active" id="view-dashboard">
+    <div id="dashboardBanner"></div>
+    <div class="hero" id="heroStats"></div>
+    <h2 class="section-title">Top-Positionen</h2>
+    <div class="card"><table class="ledger" id="topPositionsTable"></table></div>
+    <h2 class="section-title">Letzte Aktivitäten</h2>
+    <div class="card" id="recentActivities"></div>
+  </section>
+
+  <section class="view" id="view-positions">
+    <h2 class="section-title">Wertpapiere</h2>
+    <div class="row" style="margin-bottom:12px;">
+      <button class="btn ghost small" id="refreshPricesBtn">Kurse aktualisieren</button>
+      <span class="small muted" id="priceStatusText"></span>
+    </div>
+    <div class="card"><table class="ledger" id="positionsTable"></table></div>
+  </section>
+
+  <section class="view" id="view-activities">
+    <h2 class="section-title">Aktivitäten</h2>
+    <div class="row" style="margin-bottom:12px;">
+      <select id="activityFilter" style="max-width:200px;">
+        <option value="all">Alle Typen</option>
+        <option value="buy">Käufe</option>
+        <option value="sell">Verkäufe</option>
+        <option value="dividend">Dividenden</option>
+        <option value="cost">Depotkosten</option>
+      </select>
+      <select id="activitySecurityFilter" style="max-width:260px;">
+        <option value="all">Alle Wertpapiere</option>
+      </select>
+    </div>
+    <div class="card" id="activitiesList"></div>
+  </section>
+
+  <section class="view" id="view-history">
+    <h2 class="section-title">Vermögensstatus zu einem Stichtag</h2>
+    <div class="card">
+      <div class="stamp-wrap">
+        <div class="stamp" id="stampDate"><div class="d1">Stand</div><div class="d2">—</div><div class="d3">—</div></div>
+        <div style="flex:1; min-width:200px;">
+          <label for="historyDate">Datum wählen</label>
+          <input type="date" id="historyDate">
+          <div class="small muted" style="margin-top:8px;">Berechnet Bestand &amp; Einstandswert exakt aus deinen Buchungen. Kurswert zum Stichtag ist ein Bestwert (historische Kurse, wo verfügbar).</div>
+        </div>
+      </div>
+      <button class="btn" id="calcHistoryBtn">Status berechnen</button>
+    </div>
+    <div id="historyResult"></div>
+  </section>
+
+  <section class="view" id="view-settings">
+    <h2 class="section-title">Einstellungen &amp; Import</h2>
+    <div class="card" id="importCard">
+      <p class="small muted">Einmaliger Import deiner historischen Bestandsdaten (Käufe, Verkäufe, Dividenden, Depotkosten) in dieses Depot.</p>
+      <div id="importStatus" class="small" style="margin:10px 0;"></div>
+      <button class="btn" id="importBtn">Bestandsdaten importieren</button>
+    </div>
+    <div class="card">
+      <h3 style="font-family:var(--display); font-size:15px; margin-top:0;">Neues Wertpapier hinzufügen</h3>
+      <div class="formgrid">
+        <div><label>Name</label><input id="newSecName"></div>
+        <div><label>ISIN</label><input id="newSecIsin" style="text-transform:uppercase;"></div>
+        <div><label>Kürzel (für Kursabfrage)</label><input id="newSecSymbol" placeholder="z.B. AAPL, SAP.DE"></div>
+        <div><label>Art</label>
+          <select id="newSecArt"><option>Aktie</option><option>ETF</option><option>Fond</option><option>Krypto</option></select>
+        </div>
+      </div>
+      <button class="btn ghost small" style="margin-top:10px;" id="addSecBtn">Wertpapier speichern</button>
+    </div>
+    <div class="card">
+      <h3 style="font-family:var(--display); font-size:15px; margin-top:0;">Über diese App</h3>
+      <p class="small muted">Eigene Depot-App – Käufe, Verkäufe, Dividenden &amp; Kosten erfassen, Performance pro Wertpapier &amp; Gesamtstatus auswerten, Stichtag-Abfrage. Daten liegen in deinem Firebase-Projekt. Kursdaten kommen, wo möglich, kostenlos über Stooq/Yahoo – ohne API-Key, daher gelegentlich nicht für jedes Wertpapier verfügbar.</p>
+    </div>
+  </section>
+
+</main>
+
+<button class="fab" id="fabAdd" title="Aktivität erfassen">+</button>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h3>Aktivität erfassen</h3>
+    <div class="formgrid">
+      <div class="full">
+        <label>Typ</label>
+        <select id="formType">
+          <option value="buy">Kauf</option>
+          <option value="sell">Verkauf</option>
+          <option value="dividend">Dividende</option>
+          <option value="cost">Depotkosten</option>
+        </select>
+      </div>
+      <div class="full" id="formSecWrap">
+        <label>Wertpapier</label>
+        <select id="formIsin"></select>
+      </div>
+      <div><label>Datum</label><input type="date" id="formDate"></div>
+      <div id="formSharesWrap"><label>Stückzahl</label><input type="number" step="any" id="formShares"></div>
+      <div id="formPriceWrap"><label>Kurs/Anteil (€)</label><input type="number" step="any" id="formPrice"></div>
+      <div id="formAmountWrap"><label>Betrag (€)</label><input type="number" step="any" id="formAmount"></div>
+      <div id="formFeeWrap"><label>Gebühr (€)</label><input type="number" step="any" id="formFee" value="0"></div>
+      <div class="full" id="formAccountWrap" style="display:none;">
+        <label>Zugehörigkeit</label>
+        <input id="formAccount" placeholder="z.B. Anlagekonto">
+      </div>
+    </div>
+    <div class="row" style="margin-top:18px; justify-content:flex-end;">
+      <button class="btn ghost" id="formCancel">Abbrechen</button>
+      <button class="btn" id="formSave">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyC17MigpapcSFzDWsLwp2Ax74j8hgQGytw",
+  authDomain: "skabatical-budgetplaner.firebaseapp.com",
+  projectId: "skabatical-budgetplaner",
+  storageBucket: "skabatical-budgetplaner.firebasestorage.app",
+  messagingSenderId: "241961422579",
+  appId: "1:241961422579:web:2da5d0e3e83b321d223186"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const COL_SEC = 'stocks_securities';
+const COL_ACT = 'stocks_activities';
+const COL_COST = 'stocks_costs';
+const COL_PRICE = 'stocks_priceCache';
+
+const SEED = {"securities": [{"isin": "SE0006425815", "name": "POWERCELL SWEDEN  SK-,022", "wkn": "A14TK6", "symbol": "27W.F", "art": "Aktie"}, {"isin": "DE0005773303", "name": "FRAPORT AG FFM.AIRPORT", "wkn": "577330", "symbol": "FRA.F", "art": "Aktie"}, {"isin": "LU1681038599", "name": "AIS-AM.MSCI NDQ100 EOCDH", "wkn": "A2H579", "symbol": "HNDX.F", "art": "ETF"}, {"isin": "NO0010081235", "name": "NEL ASA  NK-,20", "wkn": "A0B733", "symbol": "D7G.F", "art": "Aktie"}, {"isin": "DE0007568578", "name": "SFC ENERGY AG", "wkn": "756857", "symbol": "F3C.F", "art": "Aktie"}, {"isin": "KYG9830T1067", "name": "XIAOMI CORP. CL.B", "wkn": "A2JNY1", "symbol": "3CP.F", "art": "Aktie"}, {"isin": "FR0010524777", "name": "LYXOR NEW ENE.(DR)U.ETF D", "wkn": "LYX0CB", "symbol": "LYM9.F", "art": "ETF"}, {"isin": "DE0008303504", "name": "TAG IMMOBILIEN AG", "wkn": "830350", "symbol": "TEG.F", "art": "Aktie"}, {"isin": "NL0000235190", "name": "AIRBUS", "wkn": "938914", "symbol": "Tradegate", "art": "Aktie"}, {"isin": "IE00B1XNHC34", "name": "ISHSII-GL.CL.ENERGY DLDIS", "wkn": "A0MW0M", "symbol": "IQQH.F", "art": "ETF"}, {"isin": "US2515613048", "name": "LUFTHANSA AG VNA O.N.", "wkn": "910979", "symbol": "LHA.F", "art": "Aktie"}, {"isin": "DE000TUAG000", "name": "TUI AG NA O.N.", "wkn": "TUAG00", "symbol": "TUI1.F", "art": "Aktie"}, {"isin": "CNE1000004L9", "name": "WEICHAI POWER CO. H  YC 1", "wkn": "A0M4ZC", "symbol": "WI4.F", "art": "Aktie"}, {"isin": "LU0260870158", "name": "F.TEM.INV-F.TECHN. A ACC", "wkn": "A0KEDE", "symbol": "TESG.F", "art": "ETF"}, {"isin": "DE0008476524", "name": "DWS VERMOEGENSBIL.FD.I LD", "wkn": "847652", "symbol": null, "art": "Fond"}, {"isin": "DE000ENER6Y0", "name": "SIEMENS ENERGY AG", "wkn": "ENER6Y", "symbol": "ENR.DE", "art": "Aktie"}, {"isin": "AU000000KLL6", "name": "KALIUM LAKES LTD.", "wkn": "A2DHAZ", "symbol": "1K4.F", "art": "Aktie"}, {"isin": "DE000A31C3C0", "name": "TAG IMMOBILIEN AG INHABER-BEZUGSRECHTE", "wkn": "A31C3C", "symbol": null, "art": "Aktie"}, {"isin": "DE000A0Z23Q5", "name": "ADESSO SE INHABER-AKTIEN O.N.", "wkn": "A0Z23Q", "symbol": "ADN1.DE", "art": "Aktie"}, {"isin": "LU1883321298", "name": "Amundi Funds - Global Equity Income ESG A2 EUR QTI", "wkn": "A2PCRF", "symbol": null, "art": "Fonds"}, {"isin": "DE0005557508", "name": "Deutsche Telekom Aktie", "wkn": "555750", "symbol": "DTEGF", "art": "Aktie"}, {"isin": "AU000000DRO2", "name": "DroneShield Limited Registered Shares o.N.", "wkn": "A2DMAA", "symbol": "DRSHF", "art": "Aktie"}, {"isin": "US69608A1088", "name": "Palantir Technologies Inc. Registered Shares o.N.", "wkn": "A2QA4J", "symbol": "PLTR", "art": "Aktie"}, {"isin": "DE0005190003", "name": "Bayerische Motorenwerke AG Stammaktien EO 1", "wkn": "519000", "symbol": "BAMXF", "art": "Aktie"}, {"isin": "DE000BAY0017", "name": "Bayer AG Namens-Aktien o.N.", "wkn": "BAY001", "symbol": "BAYZF", "art": "Aktie"}, {"isin": "CA45829F1009", "name": "Intellistake Technologies Corp Registered Shares o.N.", "wkn": "A41CA4", "symbol": null, "art": "Aktie"}, {"isin": "JP3902400005", "name": "Mitsubishi Electric", "wkn": "856532", "symbol": "MIELF", "art": "Aktie"}, {"isin": "DE0005565204", "name": "Dürr AG Inhaberaktien o.N.", "wkn": "556520", "symbol": "DUERF", "art": "Aktie"}, {"isin": "DE0006305006", "name": "Deutz AG Inhaberaktien o.N.", "wkn": "630500", "symbol": null, "art": "Aktie"}, {"isin": "DE000A0H08M3", "name": "iSh.ST.Eu.600 Oil&Gas U.ETF DE Inhaber-Anlageaktien", "wkn": "A0H08M", "symbol": null, "art": "ETF"}, {"isin": "DE0007164600", "name": "SAP SE Inhaber-Aktien o.N.", "wkn": "716460", "symbol": "SAPGF", "art": "Aktie"}, {"isin": "IE00B4L5Y983", "name": "iShsIII-Core MSCI World U.ETF Registered Shs USD (Acc) o.N.", "wkn": "A0RPWH", "symbol": null, "art": "ETF"}, {"isin": "IE00BK5BQT80", "name": "Vanguard FTSE All-World U.ETF Reg. Shs USD Acc.", "wkn": "A2PKXG", "symbol": null, "art": "ETF"}], "activities": [{"type": "buy", "date": "2006-02-01", "isin": "DE0008476524", "shares": 0.3951, "price": 101.24, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2006-03-01", "isin": "DE0008476524", "shares": 0.0395, "price": 101.26, "amount": 4.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2006-03-31", "isin": "DE0008476524", "shares": 0.3909, "price": 102.32, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2006-05-04", "isin": "DE0008476524", "shares": 0.3893, "price": 102.76, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2006-05-31", "isin": "DE0008476524", "shares": 0.4206, "price": 95.1, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2006-06-30", "isin": "DE0008476524", "shares": 0.4178, "price": 95.73, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2006-07-21", "isin": "DE0008476524", "shares": 0.4302, "price": 92.97, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2006-08-30", "isin": "DE0008476524", "shares": 0.4108, "price": 97.37, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2006-09-28", "isin": "DE0008476524", "shares": 0.3996, "price": 100.11, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2006-10-02", "isin": "DE0008476524", "shares": 0.7466, "price": 100.45, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2006-10-31", "isin": "DE0008476524", "shares": 0.3887, "price": 102.91, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2006-11-01", "isin": "DE0008476524", "shares": 0.7283, "price": 102.97, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2006-11-24", "isin": "DE0008476524", "shares": 0.0132, "price": 100.88, "amount": 1.33, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2006-11-24", "isin": "DE0008476524", "shares": 0.036, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2006-11-30", "isin": "DE0008476524", "shares": 0.3906, "price": 102.4, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2006-12-01", "isin": "DE0008476524", "shares": 0.7343, "price": 102.13, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2006-12-28", "isin": "DE0008476524", "shares": 0.3775, "price": 105.96, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-01-02", "isin": "DE0008476524", "shares": 0.7104, "price": 105.57, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-01-29", "isin": "DE0008476524", "shares": 0.3747, "price": 106.74, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-02-01", "isin": "DE0008476524", "shares": 0.6996, "price": 107.2, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-02-28", "isin": "DE0008476524", "shares": 0.3822, "price": 104.66, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-03-01", "isin": "DE0008476524", "shares": 0.7185, "price": 104.38, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-03-30", "isin": "DE0008476524", "shares": 0.3773, "price": 106.02, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-04-02", "isin": "DE0008476524", "shares": 0.7081, "price": 105.91, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-05-02", "isin": "DE0008476524", "shares": 0.6807, "price": 110.18, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-05-02", "isin": "DE0008476524", "shares": 0.363, "price": 110.18, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-05-29", "isin": "DE0008476524", "shares": 0.3553, "price": 112.59, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-06-01", "isin": "DE0008476524", "shares": 0.6602, "price": 113.59, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-06-29", "isin": "DE0008476524", "shares": 0.3525, "price": 113.46, "amount": 39.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-07-02", "isin": "DE0008476524", "shares": 0.661, "price": 113.45, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-07-30", "isin": "DE0008476524", "shares": 0.3629, "price": 110.23, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-08-01", "isin": "DE0008476524", "shares": 0.684, "price": 109.64, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "sell", "date": "2007-08-06", "isin": "DE0008476524", "shares": 0.9702, "price": 86.58, "amount": 84.0, "fee": 0.0, "tax": 0, "platform": "Tradegate"}, {"type": "buy", "date": "2007-08-29", "isin": "DE0008476524", "shares": 0.3716, "price": 107.63, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-09-03", "isin": "DE0008476524", "shares": 0.68, "price": 110.29, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-10-01", "isin": "DE0008476524", "shares": 0.6676, "price": 112.34, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-10-02", "isin": "DE0008476524", "shares": 0.3536, "price": 113.13, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-10-29", "isin": "DE0008476524", "shares": 0.3619, "price": 110.54, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-11-01", "isin": "DE0008476524", "shares": 0.6747, "price": 111.15, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-11-16", "isin": "DE0008476524", "shares": 0.0857, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2007-11-17", "isin": "DE0008476524", "shares": 0.0746, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2007-11-30", "isin": "DE0008476524", "shares": 0.3804, "price": 105.16, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2007-12-03", "isin": "DE0008476524", "shares": 0.7136, "price": 105.09, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2008-01-02", "isin": "DE0008476524", "shares": 0.7132, "price": 105.15, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2008-01-02", "isin": "DE0008476524", "shares": 0.3804, "price": 105.15, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2008-02-01", "isin": "DE0008476524", "shares": 0.4087, "price": 97.87, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2008-02-29", "isin": "DE0008476524", "shares": 0.4133, "price": 96.79, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2008-04-01", "isin": "DE0008476524", "shares": 0.4312, "price": 92.77, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2008-04-30", "isin": "DE0008476524", "shares": 0.4123, "price": 97.01, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2008-05-02", "isin": "DE0008476524", "shares": 0.7591, "price": 98.79, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2008-05-30", "isin": "DE0008476524", "shares": 0.3997, "price": 100.08, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2008-06-02", "isin": "DE0008476524", "shares": 0.7527, "price": 99.63, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2008-07-01", "isin": "DE0008476524", "shares": 0.8191, "price": 91.56, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2008-07-01", "isin": "DE0008476524", "shares": 0.4369, "price": 91.56, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2008-07-30", "isin": "DE0008476524", "shares": 0.4458, "price": 89.72, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2008-08-01", "isin": "DE0008476524", "shares": 0.8371, "price": 89.59, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2008-08-29", "isin": "DE0008476524", "shares": 0.4255, "price": 94.0, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2008-09-01", "isin": "DE0008476524", "shares": 0.7984, "price": 93.93, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2008-09-30", "isin": "DE0008476524", "shares": 0.4734, "price": 84.49, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2008-10-01", "isin": "DE0008476524", "shares": 0.8683, "price": 86.37, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2008-10-30", "isin": "DE0008476524", "shares": 0.5337, "price": 74.95, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2008-11-03", "isin": "DE0008476524", "shares": 0.9735, "price": 77.04, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2008-11-22", "isin": "DE0008476524", "shares": 0.1498, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2008-11-22", "isin": "DE0008476524", "shares": 0.1275, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2008-12-01", "isin": "DE0008476524", "shares": 1.0476, "price": 71.59, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2008-12-02", "isin": "DE0008476524", "shares": 0.5769, "price": 69.34, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-01-02", "isin": "DE0008476524", "shares": 1.018, "price": 73.67, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-01-02", "isin": "DE0008476524", "shares": 0.543, "price": 73.67, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-01-29", "isin": "DE0008476524", "shares": 0.559, "price": 71.55, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-02-02", "isin": "DE0008476524", "shares": 1.0813, "price": 69.36, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-03-02", "isin": "DE0008476524", "shares": 1.1994, "price": 62.53, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-03-03", "isin": "DE0008476524", "shares": 0.6531, "price": 61.25, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-04-01", "isin": "DE0008476524", "shares": 0.5908, "price": 67.71, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-04-03", "isin": "DE0008476524", "shares": 1.1076, "price": 67.71, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-04-30", "isin": "DE0008476524", "shares": 0.5408, "price": 73.97, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-05-04", "isin": "DE0008476524", "shares": 0.9985, "price": 75.11, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-05-29", "isin": "DE0008476524", "shares": 0.5242, "price": 76.31, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-06-02", "isin": "DE0008476524", "shares": 0.9641, "price": 77.79, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-07-01", "isin": "DE0008476524", "shares": 0.9807, "price": 76.47, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-07-03", "isin": "DE0008476524", "shares": 0.5335, "price": 74.98, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-07-31", "isin": "DE0008476524", "shares": 0.4934, "price": 81.07, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-08-03", "isin": "DE0008476524", "shares": 0.9194, "price": 81.57, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-09-01", "isin": "DE0008476524", "shares": 0.9029, "price": 83.06, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-09-02", "isin": "DE0008476524", "shares": 0.4843, "price": 82.6, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-10-01", "isin": "DE0008476524", "shares": 0.8974, "price": 83.57, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-10-02", "isin": "DE0008476524", "shares": 0.4855, "price": 82.39, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-11-02", "isin": "DE0008476524", "shares": 0.914, "price": 82.05, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-11-02", "isin": "DE0008476524", "shares": 0.4875, "price": 82.05, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-11-22", "isin": "DE0008476524", "shares": 0.1674, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2009-11-28", "isin": "DE0008476524", "shares": 0.2332, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2009-12-01", "isin": "DE0008476524", "shares": 0.9035, "price": 83.01, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2009-12-02", "isin": "DE0008476524", "shares": 0.4781, "price": 83.66, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-01-04", "isin": "DE0008476524", "shares": 0.8526, "price": 87.96, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-01-04", "isin": "DE0008476524", "shares": 0.4548, "price": 87.96, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-02-01", "isin": "DE0008476524", "shares": 0.8921, "price": 84.07, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-02-03", "isin": "DE0008476524", "shares": 0.4671, "price": 85.64, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-03-01", "isin": "DE0008476524", "shares": 0.8739, "price": 85.82, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-03-08", "isin": "DE0008476524", "shares": 0.4509, "price": 88.71, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-03-31", "isin": "DE0008476524", "shares": 0.4315, "price": 92.7, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-04-01", "isin": "DE0008476524", "shares": 0.8061, "price": 93.03, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-04-30", "isin": "DE0008476524", "shares": 0.4248, "price": 94.17, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-05-03", "isin": "DE0008476524", "shares": 0.8007, "price": 93.67, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-05-31", "isin": "DE0008476524", "shares": 0.445, "price": 89.88, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-06-01", "isin": "DE0008476524", "shares": 0.8437, "price": 88.89, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-06-30", "isin": "DE0008476524", "shares": 0.4624, "price": 86.51, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-07-01", "isin": "DE0008476524", "shares": 0.88, "price": 85.23, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-08-02", "isin": "DE0008476524", "shares": 0.8386, "price": 89.43, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-08-02", "isin": "DE0008476524", "shares": 0.4473, "price": 89.43, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-08-31", "isin": "DE0008476524", "shares": 0.4673, "price": 85.59, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-09-01", "isin": "DE0008476524", "shares": 0.8683, "price": 86.38, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-09-29", "isin": "DE0008476524", "shares": 0.4543, "price": 88.05, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-10-01", "isin": "DE0008476524", "shares": 0.8582, "price": 87.39, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-11-01", "isin": "DE0008476524", "shares": 0.8482, "price": 88.42, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-11-02", "isin": "DE0008476524", "shares": 0.4502, "price": 88.85, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-11-27", "isin": "DE0008476524", "shares": 0.3363, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2010-11-27", "isin": "DE0008476524", "shares": 0.2246, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2010-11-29", "isin": "DE0008476524", "shares": 0.4461, "price": 89.67, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-12-01", "isin": "DE0008476524", "shares": 0.833, "price": 90.04, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2010-12-30", "isin": "DE0008476524", "shares": 0.4245, "price": 94.22, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-01-03", "isin": "DE0008476524", "shares": 0.793, "price": 94.58, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-02-01", "isin": "DE0008476524", "shares": 0.7709, "price": 97.29, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-02-01", "isin": "DE0008476524", "shares": 0.4111, "price": 97.29, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-03-01", "isin": "DE0008476524", "shares": 0.7592, "price": 98.79, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-03-02", "isin": "DE0008476524", "shares": 0.412, "price": 97.09, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-03-31", "isin": "DE0008476524", "shares": 0.4179, "price": 95.71, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-04-01", "isin": "DE0008476524", "shares": 0.7817, "price": 95.95, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-04-28", "isin": "DE0008476524", "shares": 0.4275, "price": 93.56, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-05-02", "isin": "DE0008476524", "shares": 0.7926, "price": 94.63, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-05-31", "isin": "DE0008476524", "shares": 0.4281, "price": 93.43, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-06-01", "isin": "DE0008476524", "shares": 0.8077, "price": 92.86, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-06-30", "isin": "DE0008476524", "shares": 0.4474, "price": 89.4, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-07-01", "isin": "DE0008476524", "shares": 0.8309, "price": 90.26, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-08-01", "isin": "DE0008476524", "shares": 0.8518, "price": 88.05, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-08-02", "isin": "DE0008476524", "shares": 0.4594, "price": 87.07, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-08-31", "isin": "DE0008476524", "shares": 0.5093, "price": 78.54, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-09-01", "isin": "DE0008476524", "shares": 0.9484, "price": 79.08, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-09-30", "isin": "DE0008476524", "shares": 0.5191, "price": 77.05, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-10-04", "isin": "DE0008476524", "shares": 0.9984, "price": 75.12, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-10-31", "isin": "DE0008476524", "shares": 0.4867, "price": 82.18, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-11-01", "isin": "DE0008476524", "shares": 0.9359, "price": 80.14, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-11-26", "isin": "DE0008476524", "shares": 0.5369, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2011-11-26", "isin": "DE0008476524", "shares": 0.3438, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2011-11-30", "isin": "DE0008476524", "shares": 0.5041, "price": 79.35, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-12-01", "isin": "DE0008476524", "shares": 0.921, "price": 81.43, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2011-12-29", "isin": "DE0008476524", "shares": 0.4873, "price": 82.08, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-01-02", "isin": "DE0008476524", "shares": 0.8999, "price": 83.34, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-02-01", "isin": "DE0008476524", "shares": 0.8482, "price": 88.42, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-02-01", "isin": "DE0008476524", "shares": 0.4524, "price": 88.42, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-03-01", "isin": "DE0008476524", "shares": 0.8396, "price": 89.33, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-03-01", "isin": "DE0008476524", "shares": 0.4478, "price": 89.33, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-04-02", "isin": "DE0008476524", "shares": 0.8368, "price": 89.63, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-04-03", "isin": "DE0008476524", "shares": 0.4432, "price": 90.26, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-05-02", "isin": "DE0008476524", "shares": 0.8462, "price": 88.63, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-05-03", "isin": "DE0008476524", "shares": 0.4516, "price": 88.58, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-06-01", "isin": "DE0008476524", "shares": 0.8801, "price": 85.22, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-06-01", "isin": "DE0008476524", "shares": 0.4694, "price": 85.22, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-07-01", "isin": "DE0008476524", "shares": 0.6835, "price": 58.5223, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-07-02", "isin": "DE0008476524", "shares": 0.847, "price": 88.55, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-08-01", "isin": "DE0008476524", "shares": 0.8249, "price": 90.92, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-08-01", "isin": "DE0008476524", "shares": 0.6835, "price": 58.5223, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-09-01", "isin": "DE0008476524", "shares": 0.6835, "price": 58.5223, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-09-03", "isin": "DE0008476524", "shares": 0.8173, "price": 91.77, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-10-01", "isin": "DE0008476524", "shares": 0.8082, "price": 92.8, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-10-01", "isin": "DE0008476524", "shares": 0.6835, "price": 58.5223, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-11-01", "isin": "DE0008476524", "shares": 0.8196, "price": 91.51, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-11-01", "isin": "DE0008476524", "shares": 0.6835, "price": 58.5223, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-11-24", "isin": "DE0008476524", "shares": 0.4745, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2012-11-24", "isin": "DE0008476524", "shares": 0.2953, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2012-12-03", "isin": "DE0008476524", "shares": 0.8251, "price": 90.9, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2012-12-21", "isin": "DE0008476524", "shares": 0.7883, "price": 91.34, "amount": 72.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-01-02", "isin": "DE0008476524", "shares": 0.8116, "price": 92.41, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-01-02", "isin": "DE0008476524", "shares": 0.4329, "price": 92.41, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-01-31", "isin": "DE0008476524", "shares": 0.4284, "price": 93.38, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-02-01", "isin": "DE0008476524", "shares": 0.8083, "price": 92.79, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-03-01", "isin": "DE0008476524", "shares": 0.7937, "price": 94.49, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-03-01", "isin": "DE0008476524", "shares": 0.4233, "price": 94.49, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-04-02", "isin": "DE0008476524", "shares": 0.7662, "price": 97.88, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-04-03", "isin": "DE0008476524", "shares": 0.406, "price": 98.53, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-05-02", "isin": "DE0008476524", "shares": 0.7651, "price": 98.03, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-05-02", "isin": "DE0008476524", "shares": 0.408, "price": 98.03, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-06-03", "isin": "DE0008476524", "shares": 0.7456, "price": 100.59, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-06-03", "isin": "DE0008476524", "shares": 0.3977, "price": 100.59, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-06-28", "isin": "DE0008476524", "shares": 0.4095, "price": 97.68, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-07-01", "isin": "DE0008476524", "shares": 0.7685, "price": 97.59, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-07-31", "isin": "DE0008476524", "shares": 0.3996, "price": 100.1, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-08-01", "isin": "DE0008476524", "shares": 0.743, "price": 100.94, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-08-30", "isin": "DE0008476524", "shares": 0.4046, "price": 98.87, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-09-02", "isin": "DE0008476524", "shares": 0.7528, "price": 99.63, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-09-04", "isin": "DE0008476524", "shares": 0.4008, "price": 99.81, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-10-01", "isin": "DE0008476524", "shares": 0.7422, "price": 101.05, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-10-02", "isin": "DE0008476524", "shares": 0.3946, "price": 101.36, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-11-01", "isin": "DE0008476524", "shares": 0.7173, "price": 104.56, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-11-01", "isin": "DE0008476524", "shares": 0.3826, "price": 104.56, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-11-23", "isin": "DE0008476524", "shares": 0.2815, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2013-11-23", "isin": "DE0008476524", "shares": 0.1768, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2013-12-02", "isin": "DE0008476524", "shares": 0.707, "price": 106.08, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2013-12-03", "isin": "DE0008476524", "shares": 0.3784, "price": 105.7, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-01-02", "isin": "DE0008476524", "shares": 0.7036, "price": 106.59, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-01-03", "isin": "DE0008476524", "shares": 0.3756, "price": 106.49, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-02-03", "isin": "DE0008476524", "shares": 0.7191, "price": 104.29, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-02-03", "isin": "DE0008476524", "shares": 0.3835, "price": 104.29, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-03-03", "isin": "DE0008476524", "shares": 0.7061, "price": 106.21, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-03-03", "isin": "DE0008476524", "shares": 0.3766, "price": 106.21, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-04-01", "isin": "DE0008476524", "shares": 0.6975, "price": 107.52, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-04-01", "isin": "DE0008476524", "shares": 0.372, "price": 107.52, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-05-02", "isin": "DE0008476524", "shares": 0.6944, "price": 108.01, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-05-02", "isin": "DE0008476524", "shares": 0.3703, "price": 108.01, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-05-30", "isin": "DE0008476524", "shares": 0.3558, "price": 112.41, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-06-02", "isin": "DE0008476524", "shares": 0.6659, "price": 112.63, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-06-27", "isin": "DE0008476524", "shares": 0.3509, "price": 114.0, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-07-01", "isin": "DE0008476524", "shares": 0.6581, "price": 113.96, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-07-30", "isin": "DE0008476524", "shares": 0.3431, "price": 116.6, "amount": 40.01, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-08-01", "isin": "DE0008476524", "shares": 0.6598, "price": 113.67, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-08-29", "isin": "DE0008476524", "shares": 0.3364, "price": 118.91, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-09-01", "isin": "DE0008476524", "shares": 0.6273, "price": 119.56, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-10-01", "isin": "DE0008476524", "shares": 0.6217, "price": 120.63, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-10-01", "isin": "DE0008476524", "shares": 0.3316, "price": 120.63, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-10-30", "isin": "DE0008476524", "shares": 0.3329, "price": 120.17, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-11-03", "isin": "DE0008476524", "shares": 0.6098, "price": 122.98, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-12-01", "isin": "DE0008476524", "shares": 0.6007, "price": 124.86, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-12-01", "isin": "DE0008476524", "shares": 0.3204, "price": 124.86, "amount": 40.01, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2014-12-06", "isin": "DE0008476524", "shares": 0.7487, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2014-12-06", "isin": "DE0008476524", "shares": 0.5532, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2015-01-02", "isin": "DE0008476524", "shares": 0.5971, "price": 125.61, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-01-02", "isin": "DE0008476524", "shares": 0.3184, "price": 125.61, "amount": 39.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-01-30", "isin": "DE0008476524", "shares": 0.3035, "price": 131.79, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-02-02", "isin": "DE0008476524", "shares": 0.5698, "price": 131.62, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-03-02", "isin": "DE0008476524", "shares": 0.5326, "price": 140.82, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-03-02", "isin": "DE0008476524", "shares": 0.2841, "price": 140.82, "amount": 40.01, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-04-01", "isin": "DE0008476524", "shares": 0.5179, "price": 144.82, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-04-29", "isin": "DE0008476524", "shares": 0.2737, "price": 146.14, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-05-04", "isin": "DE0008476524", "shares": 0.5197, "price": 144.31, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-05-29", "isin": "DE0008476524", "shares": 0.2724, "price": 146.85, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-06-01", "isin": "DE0008476524", "shares": 0.513, "price": 146.19, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-06-29", "isin": "DE0008476524", "shares": 0.2807, "price": 142.52, "amount": 40.01, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-07-01", "isin": "DE0008476524", "shares": 0.5264, "price": 142.47, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-07-29", "isin": "DE0008476524", "shares": 0.2789, "price": 143.41, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-08-03", "isin": "DE0008476524", "shares": 0.5173, "price": 144.99, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-08-31", "isin": "DE0008476524", "shares": 0.2995, "price": 133.57, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-09-01", "isin": "DE0008476524", "shares": 0.5791, "price": 129.5, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-09-30", "isin": "DE0008476524", "shares": 0.3157, "price": 126.72, "amount": 40.01, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-10-01", "isin": "DE0008476524", "shares": 0.5766, "price": 130.08, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-10-29", "isin": "DE0008476524", "shares": 0.2813, "price": 142.21, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-11-02", "isin": "DE0008476524", "shares": 0.5325, "price": 140.84, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-11-28", "isin": "DE0008476524", "shares": 0.2993, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2015-11-28", "isin": "DE0008476524", "shares": 0.1824, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2015-12-01", "isin": "DE0008476524", "shares": 0.5159, "price": 145.36, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-12-02", "isin": "DE0008476524", "shares": 0.2743, "price": 145.81, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2015-12-30", "isin": "DE0008476524", "shares": 0.2859, "price": 139.93, "amount": 40.01, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-01-04", "isin": "DE0008476524", "shares": 0.5528, "price": 135.66, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-01-29", "isin": "DE0008476524", "shares": 0.3145, "price": 127.17, "amount": 39.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-02-01", "isin": "DE0008476524", "shares": 0.5804, "price": 129.22, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-02-26", "isin": "DE0008476524", "shares": 0.3093, "price": 129.32, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-03-01", "isin": "DE0008476524", "shares": 0.5748, "price": 130.47, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-03-30", "isin": "DE0008476524", "shares": 0.3015, "price": 132.68, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-04-01", "isin": "DE0008476524", "shares": 0.574, "price": 130.66, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-05-02", "isin": "DE0008476524", "shares": 0.5705, "price": 131.47, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-05-02", "isin": "DE0008476524", "shares": 0.3043, "price": 131.47, "amount": 40.01, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-05-30", "isin": "DE0008476524", "shares": 0.2933, "price": 136.38, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-06-01", "isin": "DE0008476524", "shares": 0.5515, "price": 136.0, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-06-29", "isin": "DE0008476524", "shares": 0.3028, "price": 132.12, "amount": 40.01, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-07-01", "isin": "DE0008476524", "shares": 0.5571, "price": 134.63, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-07-29", "isin": "DE0008476524", "shares": 0.2852, "price": 140.23, "amount": 39.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-08-01", "isin": "DE0008476524", "shares": 0.5354, "price": 140.09, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-08-29", "isin": "DE0008476524", "shares": 0.2847, "price": 140.51, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-09-01", "isin": "DE0008476524", "shares": 0.5314, "price": 141.14, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-09-29", "isin": "DE0008476524", "shares": 0.2841, "price": 140.79, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-10-04", "isin": "DE0008476524", "shares": 0.5326, "price": 140.82, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-10-28", "isin": "DE0008476524", "shares": 0.2842, "price": 140.76, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-11-01", "isin": "DE0008476524", "shares": 0.5397, "price": 138.97, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-11-26", "isin": "DE0008476524", "shares": 0.2133, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2016-11-26", "isin": "DE0008476524", "shares": 0.234, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2016-11-30", "isin": "DE0008476524", "shares": 0.2751, "price": 145.4, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-12-01", "isin": "DE0008476524", "shares": 0.5189, "price": 144.54, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2016-12-29", "isin": "DE0008476524", "shares": 0.2687, "price": 148.89, "amount": 40.01, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-01-02", "isin": "DE0008476524", "shares": 0.5061, "price": 148.18, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-01-30", "isin": "DE0008476524", "shares": 0.2673, "price": 149.63, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-02-01", "isin": "DE0008476524", "shares": 0.506, "price": 148.22, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-03-01", "isin": "DE0008476524", "shares": 0.4746, "price": 158.01, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-03-01", "isin": "DE0008476524", "shares": 0.2531, "price": 158.01, "amount": 39.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-03-30", "isin": "DE0008476524", "shares": 0.2557, "price": 156.41, "amount": 39.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-04-03", "isin": "DE0008476524", "shares": 0.4774, "price": 157.08, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-04-28", "isin": "DE0008476524", "shares": 0.2549, "price": 156.95, "amount": 40.01, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-05-02", "isin": "DE0008476524", "shares": 0.4777, "price": 157.0, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-05-30", "isin": "DE0008476524", "shares": 0.2553, "price": 156.69, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-06-01", "isin": "DE0008476524", "shares": 0.4815, "price": 155.76, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-06-29", "isin": "DE0008476524", "shares": 0.2568, "price": 155.75, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-07-03", "isin": "DE0008476524", "shares": 0.4848, "price": 154.7, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-07-27", "isin": "DE0008476524", "shares": 0.2586, "price": 154.7, "amount": 40.01, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-08-01", "isin": "DE0008476524", "shares": 0.4911, "price": 152.72, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-08-28", "isin": "DE0008476524", "shares": 0.2669, "price": 149.86, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-09-01", "isin": "DE0008476524", "shares": 0.4927, "price": 152.22, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-09-29", "isin": "DE0008476524", "shares": 0.2573, "price": 155.44, "amount": 39.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-10-02", "isin": "DE0008476524", "shares": 0.4782, "price": 156.84, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-10-30", "isin": "DE0008476524", "shares": 0.2497, "price": 160.2, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-11-01", "isin": "DE0008476524", "shares": 0.4664, "price": 160.81, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-11-25", "isin": "DE0008476524", "shares": 0.3242, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2017-11-25", "isin": "DE0008476524", "shares": 0.1366, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2017-11-29", "isin": "DE0008476524", "shares": 0.2506, "price": 159.61, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-12-01", "isin": "DE0008476524", "shares": 0.4708, "price": 159.31, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2017-12-28", "isin": "DE0008476524", "shares": 0.2489, "price": 160.7, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-01-02", "isin": "DE0008476524", "shares": 0.4729, "price": 158.6, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-01-30", "isin": "DE0008476524", "shares": 0.2441, "price": 163.85, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-02-01", "isin": "DE0008476524", "shares": 0.4637, "price": 161.72, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-02-28", "isin": "DE0008476524", "shares": 0.2516, "price": 158.98, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-03-01", "isin": "DE0008476524", "shares": 0.4753, "price": 157.78, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-03-29", "isin": "DE0008476524", "shares": 0.2629, "price": 152.15, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-04-03", "isin": "DE0008476524", "shares": 0.4956, "price": 151.33, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-04-30", "isin": "DE0008476524", "shares": 0.2547, "price": 157.06, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-05-02", "isin": "DE0008476524", "shares": 0.475, "price": 157.9, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-05-30", "isin": "DE0008476524", "shares": 0.2443, "price": 163.7, "amount": 39.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-06-01", "isin": "DE0008476524", "shares": 0.4578, "price": 163.81, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-07-02", "isin": "DE0008476524", "shares": 0.4602, "price": 162.97, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-07-02", "isin": "DE0008476524", "shares": 0.2454, "price": 162.97, "amount": 39.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-07-30", "isin": "DE0008476524", "shares": 0.2358, "price": 169.64, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-08-01", "isin": "DE0008476524", "shares": 0.4446, "price": 168.67, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-08-31", "isin": "DE0008476524", "shares": 0.2327, "price": 171.86, "amount": 39.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-09-03", "isin": "DE0008476524", "shares": 0.4356, "price": 172.16, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-09-28", "isin": "DE0008476524", "shares": 0.2322, "price": 172.23, "amount": 39.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-10-02", "isin": "DE0008476524", "shares": 0.434, "price": 172.8, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "sell", "date": "2018-10-10", "isin": "DE0008476524", "shares": 103.7539, "price": 160.92, "amount": 16696.08, "fee": 0.0, "tax": 0, "platform": "Tradegate"}, {"type": "buy", "date": "2018-10-31", "isin": "DE0008476524", "shares": 0.2468, "price": 162.07, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-11-01", "isin": "DE0008476524", "shares": 0.4616, "price": 162.47, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-11-29", "isin": "DE0008476524", "shares": 0.2438, "price": 164.08, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-12-03", "isin": "DE0008476524", "shares": 0.4482, "price": 167.43, "amount": 75.04, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2018-12-28", "isin": "DE0008476524", "shares": 0.266, "price": 150.36, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-01-02", "isin": "DE0008476524", "shares": 0.5023, "price": 149.31, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-01-30", "isin": "DE0008476524", "shares": 0.2492, "price": 160.49, "amount": 39.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-02-01", "isin": "DE0008476524", "shares": 0.4606, "price": 162.81, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-02-28", "isin": "DE0008476524", "shares": 0.2373, "price": 168.56, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-03-01", "isin": "DE0008476524", "shares": 0.4448, "price": 168.59, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-04-01", "isin": "DE0008476524", "shares": 0.4324, "price": 173.44, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-04-01", "isin": "DE0008476524", "shares": 0.2306, "price": 173.44, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-05-02", "isin": "DE0008476524", "shares": 0.4212, "price": 178.06, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-05-02", "isin": "DE0008476524", "shares": 0.2246, "price": 178.06, "amount": 39.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-05-29", "isin": "DE0008476524", "shares": 0.234, "price": 170.94, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-06-03", "isin": "DE0008476524", "shares": 0.4431, "price": 169.25, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-07-01", "isin": "DE0008476524", "shares": 0.405783, "price": 184.8277, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-07-01", "isin": "DE0008476524", "shares": 0.2237, "price": 178.8, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-07-31", "isin": "DE0008476524", "shares": 0.2185, "price": 183.05, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-08-01", "isin": "DE0008476524", "shares": 0.405783, "price": 184.8277, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-08-29", "isin": "DE0008476524", "shares": 0.2244, "price": 178.29, "amount": 40.01, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-09-01", "isin": "DE0008476524", "shares": 0.405783, "price": 184.8277, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-09-25", "isin": "DE0008476524", "shares": 0.2184, "price": 183.11, "amount": 39.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-10-01", "isin": "DE0008476524", "shares": 0.405783, "price": 184.8277, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-10-30", "isin": "DE0008476524", "shares": 0.2136, "price": 187.29, "amount": 40.01, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-11-01", "isin": "DE0008476524", "shares": 0.405783, "price": 184.8277, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-11-26", "isin": "DE0008476524", "shares": 0.0157, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2019-11-26", "isin": "DE0008476524", "shares": 0.181, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "buy", "date": "2019-11-29", "isin": "DE0008476524", "shares": 0.2056, "price": 194.53, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2019-12-01", "isin": "DE0008476524", "shares": 0.405783, "price": 184.8277, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-01-02", "isin": "DE0008476524", "shares": 0.3803, "price": 197.22, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-01-02", "isin": "DE0008476524", "shares": 0.2028, "price": 197.22, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-01-29", "isin": "DE0008476524", "shares": 0.1966, "price": 203.44, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-02-03", "isin": "DE0008476524", "shares": 0.3772, "price": 198.81, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-02-28", "isin": "DE0008476524", "shares": 0.2158, "price": 185.33, "amount": 39.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-03-02", "isin": "DE0008476524", "shares": 0.4082, "price": 183.72, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-04-01", "isin": "DE0008476524", "shares": 0.4629, "price": 162.03, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-04-01", "isin": "DE0008476524", "shares": 0.2469, "price": 162.03, "amount": 40.01, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-05-04", "isin": "DE0008476524", "shares": 0.4216, "price": 177.87, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-05-04", "isin": "DE0008476524", "shares": 0.2249, "price": 177.87, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-05-29", "isin": "DE0008476524", "shares": 0.212, "price": 188.66, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-06-02", "isin": "DE0008476524", "shares": 0.3932, "price": 190.73, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-06-17", "isin": "DE0007568578", "shares": 100.0, "price": 15.82, "amount": 1582.0, "fee": 10.0, "tax": 0}, {"type": "buy", "date": "2020-06-17", "isin": "NO0010081235", "shares": 500.0, "price": 1.8615, "amount": 930.75, "fee": 10.0, "tax": 0}, {"type": "buy", "date": "2020-06-17", "isin": "SE0006425815", "shares": 100.0, "price": 29.86, "amount": 2986.0, "fee": 10.0, "tax": 0}, {"type": "buy", "date": "2020-06-17", "isin": "FR0010524777", "shares": 100.0, "price": 30.055, "amount": 3005.5, "fee": 10.86, "tax": 0}, {"type": "buy", "date": "2020-06-30", "isin": "DE0008476524", "shares": 0.2104, "price": 190.14, "amount": 40.01, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-07-02", "isin": "DE0008476524", "shares": 0.3896, "price": 192.5, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-07-03", "isin": "NL0000235190", "shares": 15.0, "price": 65.71, "amount": 985.65, "fee": 10.0, "tax": 0}, {"type": "dividend", "date": "2020-07-10", "isin": "FR0010524777", "amount": 29.0, "tax": 0}, {"type": "buy", "date": "2020-07-15", "isin": "DE0005773303", "shares": 25.0, "price": 38.98, "amount": 974.5, "fee": 10.0, "tax": 0}, {"type": "buy", "date": "2020-07-20", "isin": "LU0260870158", "shares": 3.6941, "price": 28.5696, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "buy", "date": "2020-08-03", "isin": "DE0008476524", "shares": 0.209, "price": 191.38, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-08-04", "isin": "DE0008476524", "shares": 0.3892, "price": 192.69, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-08-20", "isin": "LU0260870158", "shares": 3.6724, "price": 28.7385, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "buy", "date": "2020-08-28", "isin": "DE0008476524", "shares": 0.201, "price": 198.96, "amount": 39.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-09-01", "isin": "DE0008303504", "shares": 20.0, "price": 25.54, "amount": 510.8, "fee": 10.0, "tax": 0}, {"type": "buy", "date": "2020-09-01", "isin": "KYG9830T1067", "shares": 120.0, "price": 2.851, "amount": 342.12, "fee": 10.0, "tax": 0}, {"type": "buy", "date": "2020-09-01", "isin": "LU1681038599", "shares": 1.0, "price": 307.55, "amount": 307.55, "fee": 10.82, "tax": 0}, {"type": "sell", "date": "2020-09-01", "isin": "SE0006425815", "shares": 100.0, "price": 22.04, "amount": 2194.0, "fee": 10.0, "tax": 0, "platform": "Tradegate"}, {"type": "buy", "date": "2020-09-02", "isin": "DE0008476524", "shares": 0.3728, "price": 201.17, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-09-18", "isin": "LU0260870158", "shares": 3.5842, "price": 29.4456, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "buy", "date": "2020-09-30", "isin": "DE0008476524", "shares": 0.2053, "price": 194.82, "amount": 40.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-10-02", "isin": "DE0008476524", "shares": 0.3816, "price": 196.53, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-10-20", "isin": "LU0260870158", "shares": 3.252, "price": 32.4535, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "buy", "date": "2020-10-29", "isin": "DE0008476524", "shares": 0.209, "price": 191.43, "amount": 40.01, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-11-02", "isin": "IE00B1XNHC34", "shares": 100.0, "price": 9.799, "amount": 979.9, "fee": 10.0, "tax": 0}, {"type": "buy", "date": "2020-11-03", "isin": "DE0008476524", "shares": 0.3852, "price": 194.71, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-11-10", "isin": "DE000TUAG000", "shares": 200.0, "price": 4.745, "amount": 949.0, "fee": 10.0, "tax": 0}, {"type": "buy", "date": "2020-11-10", "isin": "US2515613048", "shares": 100.0, "price": 9.4, "amount": 940.0, "fee": 13.62, "tax": 0}, {"type": "sell", "date": "2020-11-13", "isin": "DE0005773303", "shares": 25.0, "price": 44.62, "amount": 1105.5, "fee": 10.0, "tax": 0, "platform": "Tradegate"}, {"type": "buy", "date": "2020-11-19", "isin": "LU0260870158", "shares": 3.319, "price": 31.7992, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "dividend", "date": "2020-11-20", "isin": "DE0008476524", "amount": 6.0, "tax": 0}, {"type": "buy", "date": "2020-11-24", "isin": "DE0008476524", "shares": 0.0052, "price": 0, "amount": 0, "fee": 0, "tax": 0, "note": "Sachdividende (kostenloser Anteilszugang)"}, {"type": "dividend", "date": "2020-11-27", "isin": "IE00B1XNHC34", "amount": 3.46, "tax": 0}, {"type": "buy", "date": "2020-11-30", "isin": "DE0008476524", "shares": 0.1933, "price": 206.89, "amount": 39.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-12-02", "isin": "DE0008476524", "shares": 0.3619, "price": 207.2, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2020-12-18", "isin": "LU0260870158", "shares": 3.1898, "price": 33.0867, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "buy", "date": "2020-12-30", "isin": "DE0008476524", "shares": 0.1916, "price": 208.74, "amount": 39.99, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2021-01-05", "isin": "DE0008476524", "shares": 0.3603, "price": 208.15, "amount": 75.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2021-01-08", "isin": "DE000TUAG000", "shares": 225.0, "price": 4.44, "amount": 999.0, "fee": 10.0, "tax": 0}, {"type": "buy", "date": "2021-01-20", "isin": "LU0260870158", "shares": 3.0675, "price": 34.406, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "buy", "date": "2021-01-27", "isin": "DE000TUAG000", "shares": 172.0, "price": 1.07, "amount": 184.04, "fee": 10.0, "tax": 0}, {"type": "buy", "date": "2021-02-02", "isin": "DE0008476524", "shares": 0.3488, "price": 214.98, "amount": 74.99, "fee": 0.0, "tax": 0}, {"type": "sell", "date": "2021-02-08", "isin": "LU1681038599", "shares": 1.0, "price": 341.45, "amount": 331.45, "fee": 10.0, "tax": 0, "platform": "außerbörslich"}, {"type": "sell", "date": "2021-02-10", "isin": "DE0008476524", "shares": 0.5026, "price": 209.69, "amount": 105.39, "fee": 0.0, "tax": 0, "platform": "Tradegate"}, {"type": "buy", "date": "2021-02-18", "isin": "LU0260870158", "shares": 2.7308, "price": 38.6487, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "buy", "date": "2021-03-04", "isin": "DE0008476524", "shares": 0.4782, "price": 219.5655, "amount": 105.0, "fee": -5.0, "tax": 0}, {"type": "buy", "date": "2021-03-18", "isin": "LU0260870158", "shares": 2.9682, "price": 35.5564, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "buy", "date": "2021-04-06", "isin": "CNE1000004L9", "shares": 500.0, "price": 2.117, "amount": 1058.5, "fee": 10.0, "tax": 0}, {"type": "buy", "date": "2021-04-08", "isin": "DE0008476524", "shares": 0.4522, "price": 232.2075, "amount": 105.0, "fee": -5.0, "tax": 0}, {"type": "buy", "date": "2021-04-15", "isin": "LU0260870158", "shares": 2.814, "price": 37.5405, "amount": 105.64, "fee": -5.54, "tax": 0}, {"type": "buy", "date": "2021-04-28", "isin": "KYG9830T1067", "shares": 250.0, "price": 2.7395, "amount": 684.88, "fee": 10.0, "tax": 0}, {"type": "buy", "date": "2021-05-04", "isin": "DE0008476524", "shares": 0.4498, "price": 233.415, "amount": 104.99, "fee": -5.0, "tax": 0}, {"type": "buy", "date": "2021-05-17", "isin": "LU0260870158", "shares": 3.123, "price": 33.7939, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "dividend", "date": "2021-05-17", "isin": "DE0008303504", "amount": 4.81, "tax": 0}, {"type": "dividend", "date": "2021-05-17", "isin": "DE0008303504", "amount": 12.79, "tax": 0}, {"type": "sell", "date": "2021-05-27", "isin": "DE000TUAG000", "shares": 597.0, "price": 5.05, "amount": 3004.85, "fee": 10.0, "tax": 0, "platform": "Tradegate"}, {"type": "dividend", "date": "2021-05-28", "isin": "IE00B1XNHC34", "amount": 3.5, "tax": 0}, {"type": "buy", "date": "2021-06-02", "isin": "DE0008476524", "shares": 0.4523, "price": 232.1235, "amount": 104.99, "fee": -5.0, "tax": 0}, {"type": "buy", "date": "2021-06-16", "isin": "LU0260870158", "shares": 2.8409, "price": 37.15, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "buy", "date": "2021-07-01", "isin": "DE0008476524", "shares": 0.4319, "price": 243.1065, "amount": 105.0, "fee": -5.0, "tax": 0}, {"type": "dividend", "date": "2021-07-09", "isin": "FR0010524777", "amount": 13.0, "tax": 0}, {"type": "buy", "date": "2021-07-15", "isin": "DE000ENER6Y0", "shares": 85.0, "price": 23.33, "amount": 1983.05, "fee": 10.0, "tax": 0}, {"type": "buy", "date": "2021-07-15", "isin": "LU0260870158", "shares": 2.6617, "price": 39.6513, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "sell", "date": "2021-08-02", "isin": "NL0000235190", "shares": 15.0, "price": 116.58, "amount": 1738.7, "fee": 10.0, "tax": 0, "platform": "Tradegate"}, {"type": "buy", "date": "2021-08-03", "isin": "DE0008476524", "shares": 0.4301, "price": 244.104, "amount": 104.99, "fee": -5.0, "tax": 0}, {"type": "buy", "date": "2021-08-16", "isin": "LU0260870158", "shares": 2.5934, "price": 40.6962, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "sell", "date": "2021-08-18", "isin": "DE0007568578", "shares": 100.0, "price": 29.2, "amount": 2910.0, "fee": 10.0, "tax": 0, "platform": "Tradegate"}, {"type": "buy", "date": "2021-08-19", "isin": "AU000000KLL6", "shares": 10000.0, "price": 0.1141, "amount": 1140.85, "fee": 32.36, "tax": 0}, {"type": "dividend", "date": "2021-08-27", "isin": "CNE1000004L9", "amount": 11.29, "tax": 0}, {"type": "buy", "date": "2021-09-02", "isin": "DE0008476524", "shares": 0.4196, "price": 250.236, "amount": 105.0, "fee": -5.0, "tax": 0}, {"type": "buy", "date": "2021-09-15", "isin": "LU0260870158", "shares": 2.4814, "price": 42.5326, "amount": 105.54, "fee": -5.64, "tax": 0}, {"type": "buy", "date": "2021-10-04", "isin": "DE0008476524", "shares": 0.4304, "price": 243.978, "amount": 105.01, "fee": -5.0, "tax": 0}, {"type": "buy", "date": "2021-10-15", "isin": "LU0260870158", "shares": 2.4307, "price": 43.4191, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "dividend", "date": "2021-10-19", "isin": "US2515613048", "amount": 240.31, "tax": 0}, {"type": "dividend", "date": "2021-10-22", "isin": "CNE1000004L9", "amount": 9.09, "tax": 0}, {"type": "buy", "date": "2021-11-02", "isin": "DE0008476524", "shares": 0.4116, "price": 255.1185, "amount": 105.01, "fee": -5.0, "tax": 0}, {"type": "buy", "date": "2021-11-15", "isin": "LU0260870158", "shares": 2.206, "price": 47.8412, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "dividend", "date": "2021-11-24", "isin": "IE00B1XNHC34", "amount": 4.26, "tax": 0}, {"type": "dividend", "date": "2021-11-26", "isin": "DE0008476524", "amount": 3.75, "tax": 0}, {"type": "buy", "date": "2021-12-02", "isin": "DE0008476524", "shares": 0.4123, "price": 254.667, "amount": 105.0, "fee": -5.0, "tax": 0}, {"type": "buy", "date": "2021-12-15", "isin": "LU0260870158", "shares": 2.3541, "price": 44.8333, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "buy", "date": "2022-01-01", "isin": "DE0008476524", "shares": 0.3897, "price": 269.4405, "amount": 105.0, "fee": -5.0, "tax": 0}, {"type": "buy", "date": "2022-01-17", "isin": "LU0260870158", "shares": 2.6364, "price": 40.0313, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "buy", "date": "2022-02-01", "isin": "DE0008476524", "shares": 0.4021, "price": 261.156, "amount": 105.01, "fee": -5.0, "tax": 0}, {"type": "buy", "date": "2022-02-15", "isin": "LU0260870158", "shares": 2.7137, "price": 38.8914, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "dividend", "date": "2022-03-01", "isin": "DE000ENER6Y0", "amount": 8.5, "tax": 0}, {"type": "buy", "date": "2022-03-02", "isin": "DE0008476524", "shares": 0.4192, "price": 250.4775, "amount": 105.0, "fee": -5.0, "tax": 0}, {"type": "buy", "date": "2022-03-04", "isin": "DE000TUAG000", "shares": 1000.0, "price": 2.366, "amount": 2366.0, "fee": 10.0, "tax": 0}, {"type": "buy", "date": "2022-03-15", "isin": "LU0260870158", "shares": 3.1397, "price": 33.6144, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "buy", "date": "2022-04-04", "isin": "DE0008476524", "shares": 0.4004, "price": 262.2165, "amount": 104.99, "fee": -5.0, "tax": 0}, {"type": "buy", "date": "2022-04-19", "isin": "LU0260870158", "shares": 2.9044, "price": 36.3374, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "buy", "date": "2022-05-03", "isin": "DE0008476524", "shares": 0.4148, "price": 253.155, "amount": 105.01, "fee": -5.0, "tax": 0}, {"type": "dividend", "date": "2022-05-11", "isin": "IE00B1XNHC34", "amount": 2.88, "tax": 0}, {"type": "buy", "date": "2022-05-16", "isin": "LU0260870158", "shares": 3.4771, "price": 30.3533, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "dividend", "date": "2022-05-18", "isin": "DE0008303504", "amount": 8.6, "tax": 0}, {"type": "dividend", "date": "2022-05-18", "isin": "DE0008303504", "amount": 10.0, "tax": 0}, {"type": "buy", "date": "2022-06-02", "isin": "DE0008476524", "shares": 0.4247, "price": 247.254, "amount": 105.01, "fee": -5.0, "tax": 0}, {"type": "buy", "date": "2022-06-15", "isin": "LU0260870158", "shares": 3.6271, "price": 29.0973, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "buy", "date": "2022-07-04", "isin": "DE0008476524", "shares": 0.4408, "price": 238.224, "amount": 105.01, "fee": -5.0, "tax": 0}, {"type": "dividend", "date": "2022-07-08", "isin": "FR0010524777", "amount": 9.0, "tax": 0}, {"type": "buy", "date": "2022-07-15", "isin": "LU0260870158", "shares": 3.42, "price": 30.8598, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "buy", "date": "2022-07-18", "isin": "DE000A31C3C0", "shares": 100.0, "price": 0.4208, "amount": 42.08, "fee": 10.0, "tax": 0}, {"type": "buy", "date": "2022-07-18", "isin": "DE000A31C3C0", "shares": 20.0, "price": 0.0, "amount": 0.0, "fee": 0.0, "tax": 0}, {"type": "sell", "date": "2022-07-20", "isin": "DE000A31C3C0", "shares": 120.0, "price": 0.498, "amount": 49.76, "fee": 10.0, "tax": 0, "platform": "Tradegate"}, {"type": "buy", "date": "2022-08-02", "isin": "DE0008476524", "shares": 0.4147, "price": 253.197, "amount": 105.0, "fee": -5.0, "tax": 0}, {"type": "buy", "date": "2022-08-15", "isin": "LU0260870158", "shares": 2.9163, "price": 36.1896, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "dividend", "date": "2022-08-27", "isin": "CNE1000004L9", "amount": 12.24, "tax": 0}, {"type": "buy", "date": "2022-09-02", "isin": "DE0008476524", "shares": 0.4199, "price": 250.0365, "amount": 104.99, "fee": -5.0, "tax": 0}, {"type": "buy", "date": "2022-09-15", "isin": "LU0260870158", "shares": 3.3535, "price": 31.472, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "dividend", "date": "2022-09-21", "isin": "CNE1000004L9", "amount": 6.37, "tax": 0}, {"type": "buy", "date": "2022-10-05", "isin": "DE0008476524", "shares": 0.4356, "price": 241.0695, "amount": 105.01, "fee": -5.0, "tax": 0}, {"type": "buy", "date": "2022-10-17", "isin": "LU0260870158", "shares": 3.7023, "price": 28.5063, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "buy", "date": "2022-11-02", "isin": "DE0008476524", "shares": 0.4308, "price": 243.726, "amount": 105.0, "fee": -5.0, "tax": 0}, {"type": "buy", "date": "2022-11-15", "isin": "LU0260870158", "shares": 3.5461, "price": 29.7622, "amount": 105.54, "fee": -5.54, "tax": 0}, {"type": "dividend", "date": "2022-11-25", "isin": "DE0008476524", "amount": 4.0, "tax": 0}, {"type": "buy", "date": "2022-12-02", "isin": "DE0008476524", "shares": 0.4227, "price": 248.409, "amount": 105.0, "fee": -5.0, "tax": 0}, {"type": "dividend", "date": "2022-12-02", "isin": "IE00B1XNHC34", "amount": 2.59, "tax": 0}, {"type": "buy", "date": "2023-02-27", "isin": "DE000TUAG000", "shares": 100.0, "price": 18.576, "amount": 1857.6, "fee": 0.0, "tax": 0}, {"type": "sell", "date": "2023-02-27", "isin": "DE000TUAG000", "shares": 1000.0, "price": 1.8576, "amount": 1857.6, "fee": 0.0, "tax": 0, "platform": "außerbörslich"}, {"type": "buy", "date": "2023-04-18", "isin": "DE000TUAG000", "shares": 266.0, "price": 5.55, "amount": 1476.3, "fee": 10.0, "tax": 0}, {"type": "dividend", "date": "2023-05-30", "isin": "IE00B1XNHC34", "amount": 2.45, "tax": 0}, {"type": "dividend", "date": "2023-08-25", "isin": "CNE1000004L9", "amount": 9.01, "tax": 0}, {"type": "dividend", "date": "2023-10-27", "isin": "CNE1000004L9", "amount": 13.26, "tax": 0}, {"type": "dividend", "date": "2023-11-24", "isin": "DE0008476524", "amount": 24.12, "tax": 0}, {"type": "dividend", "date": "2023-11-29", "isin": "IE00B1XNHC34", "amount": 4.07, "tax": 0}, {"type": "dividend", "date": "2023-12-15", "isin": "FR0010524777", "amount": 22.0, "tax": 0}, {"type": "dividend", "date": "2024-05-22", "isin": "US2515613048", "amount": 19.93, "tax": 0}, {"type": "dividend", "date": "2024-05-31", "isin": "IE00B1XNHC34", "amount": 2.27, "tax": 0}, {"type": "buy", "date": "2024-06-28", "isin": "DE000A0Z23Q5", "shares": 23.0, "price": 86.1, "amount": 1980.3, "fee": 10.0, "tax": 0}, {"type": "dividend", "date": "2024-06-28", "isin": "CNE1000004L9", "amount": 17.14, "tax": 0}, {"type": "dividend", "date": "2024-08-30", "isin": "US2515613048", "amount": -19.93, "tax": 0}, {"type": "dividend", "date": "2024-08-30", "isin": "US2515613048", "amount": 7.91, "tax": 0}, {"type": "dividend", "date": "2024-08-30", "isin": "US2515613048", "amount": 12.11, "tax": 0}, {"type": "dividend", "date": "2024-10-21", "isin": "CNE1000004L9", "amount": 17.65, "tax": 0}, {"type": "sell", "date": "2024-11-21", "isin": "DE000A0Z23Q5", "shares": 23.0, "price": 87.5, "amount": 2002.5, "fee": 10.0, "tax": 0, "platform": "Tradegate"}, {"type": "dividend", "date": "2024-11-29", "isin": "IE00B1XNHC34", "amount": 4.32, "tax": 0}, {"type": "dividend", "date": "2024-12-06", "isin": "DE0008476524", "amount": 60.97, "tax": 0}, {"type": "dividend", "date": "2024-12-13", "isin": "FR0010524777", "amount": 15.49, "tax": 0}, {"type": "buy", "date": "2025-01-03", "isin": "LU1883321298", "shares": 3.3161, "price": 78.7825, "amount": 261.25, "fee": -11.25, "tax": 0}, {"type": "buy", "date": "2025-01-22", "isin": "DE0005557508", "shares": 100.0, "price": 29.89, "amount": 2989.0, "fee": 11.0, "tax": 0}, {"type": "dividend", "date": "2025-01-31", "isin": "LU1883321298", "amount": 2.02, "tax": 0}, {"type": "buy", "date": "2025-02-04", "isin": "LU1883321298", "shares": 3.262, "price": 80.0888, "amount": 261.25, "fee": -11.25, "tax": 0}, {"type": "buy", "date": "2025-03-03", "isin": "LU1883321298", "shares": 3.3218, "price": 78.6467, "amount": 261.25, "fee": -11.25, "tax": 0}, {"type": "sell", "date": "2025-03-07", "isin": "DE000ENER6Y0", "shares": 85.0, "price": 49.3, "amount": 4180.5, "fee": 10.0, "tax": 0, "platform": "Tradegate"}, {"type": "sell", "date": "2025-03-07", "isin": "KYG9830T1067", "shares": 370.0, "price": 6.3, "amount": 2321.0, "fee": 10.0, "tax": 0, "platform": "Tradegate"}, {"type": "sell", "date": "2025-03-07", "isin": "LU0260870158", "shares": 88.0, "price": 41.52, "amount": 3643.76, "fee": 10.0, "tax": 0, "platform": "Tradegate"}, {"type": "sell", "date": "2025-03-19", "isin": "LU0260870158", "shares": 0.4172, "price": 42.75, "amount": 7.84, "fee": 10.0, "tax": 0, "platform": "Tradegate"}, {"type": "sell", "date": "2025-03-19", "isin": "LU0260870158", "shares": 0.0026, "price": 0.0, "amount": 0.0, "fee": 0.0, "tax": 0, "platform": "Tradegate"}, {"type": "buy", "date": "2025-04-01", "isin": "LU1883321298", "shares": 3.4785, "price": 75.1041, "amount": 261.25, "fee": -11.25, "tax": 0}, {"type": "sell", "date": "2025-04-01", "isin": "DE0005557508", "shares": 100.0, "price": 33.01, "amount": 3291.0, "fee": 10.0, "tax": 0, "platform": "Tradegate"}, {"type": "dividend", "date": "2025-04-30", "isin": "LU1883321298", "amount": 6.66, "tax": 0}, {"type": "buy", "date": "2025-05-02", "isin": "LU1883321298", "shares": 3.6169, "price": 72.2304, "amount": 261.25, "fee": -11.25, "tax": 0}, {"type": "dividend", "date": "2025-05-16", "isin": "US2515613048", "amount": 12.21, "tax": 0}, {"type": "dividend", "date": "2025-05-29", "isin": "IE00B1XNHC34", "amount": 2.54, "tax": 0}, {"type": "buy", "date": "2025-06-02", "isin": "LU1883321298", "shares": 3.5117, "price": 74.3935, "amount": 261.25, "fee": -11.25, "tax": 0}, {"type": "dividend", "date": "2025-06-17", "isin": "DE0008303504", "amount": 5.89, "tax": 0}, {"type": "dividend", "date": "2025-06-25", "isin": "CNE1000004L9", "amount": 15.1, "tax": 0}, {"type": "buy", "date": "2025-07-02", "isin": "LU1883321298", "shares": 3.4727, "price": 75.2295, "amount": 261.25, "fee": -11.25, "tax": 0}, {"type": "sell", "date": "2025-07-22", "isin": "AU000000KLL6", "shares": 10000.0, "price": 0.0, "amount": 0.0, "fee": 0.0, "tax": 0, "platform": "Tradegate"}, {"type": "buy", "date": "2025-07-28", "isin": "AU000000DRO2", "shares": 1802.0, "price": 1.664, "amount": 2998.53, "fee": 0.0, "tax": 0}, {"type": "dividend", "date": "2025-07-30", "isin": "LU1883321298", "amount": 11.92, "tax": 0}, {"type": "buy", "date": "2025-08-01", "isin": "LU1883321298", "shares": 3.4863, "price": 74.9369, "amount": 261.25, "fee": -11.25, "tax": 0}, {"type": "buy", "date": "2025-08-05", "isin": "US69608A1088", "shares": 19.0, "price": 151.68, "amount": 2881.92, "fee": 0.0, "tax": 0}, {"type": "sell", "date": "2025-08-19", "isin": "AU000000DRO2", "shares": 1802.0, "price": 2.115, "amount": 3811.23, "fee": 0.0, "tax": 0, "platform": "Tradegate"}, {"type": "buy", "date": "2025-09-01", "isin": "LU1883321298", "shares": 3.4445, "price": 75.8461, "amount": 261.25, "fee": -11.25, "tax": 0}, {"type": "buy", "date": "2025-10-01", "isin": "LU1883321298", "shares": 3.3382, "price": 78.26, "amount": 261.25, "fee": -11.25, "tax": 0}, {"type": "buy", "date": "2025-10-08", "isin": "DE0007568578", "shares": 173.0, "price": 17.32, "amount": 2996.36, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2025-10-08", "isin": "DE0005190003", "shares": 37.0, "price": 80.56, "amount": 2980.72, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2025-10-08", "isin": "DE000BAY0017", "shares": 109.0, "price": 27.44, "amount": 2990.96, "fee": 0.0, "tax": 0}, {"type": "dividend", "date": "2025-10-24", "isin": "CNE1000004L9", "amount": 15.95, "tax": 0}, {"type": "dividend", "date": "2025-10-31", "isin": "LU1883321298", "amount": 17.02, "tax": 0}, {"type": "buy", "date": "2025-11-03", "isin": "CA45829F1009", "shares": 1767.0, "price": 1.98, "amount": 3498.66, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2025-11-03", "isin": "LU1883321298", "shares": 3.2995, "price": 79.1796, "amount": 261.25, "fee": -11.25, "tax": 0}, {"type": "sell", "date": "2025-11-10", "isin": "CNE1000004L9", "shares": 500.0, "price": 2.202, "amount": 1091.0, "fee": 10.0, "tax": 0, "platform": "Tradegate"}, {"type": "buy", "date": "2025-11-12", "isin": "JP3902400005", "shares": 124.0, "price": 24.13, "amount": 2992.12, "fee": 0.0, "tax": 0}, {"type": "dividend", "date": "2025-11-27", "isin": "IE00B1XNHC34", "amount": 5.79, "tax": 0}, {"type": "buy", "date": "2025-12-01", "isin": "LU1883321298", "shares": 3.2964, "price": 79.2528, "amount": 261.25, "fee": -11.25, "tax": 0}, {"type": "dividend", "date": "2025-12-05", "isin": "DE0008476524", "amount": 42.52, "tax": 0}, {"type": "dividend", "date": "2025-12-12", "isin": "FR0010524777", "amount": 11.42, "tax": 0}, {"type": "buy", "date": "2026-01-02", "isin": "LU1883321298", "shares": 3.2942, "price": 79.305, "amount": 261.25, "fee": -11.25, "tax": 0}, {"type": "buy", "date": "2026-01-06", "isin": "DE0005565204", "shares": 128.0, "price": 23.4, "amount": 2995.2, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2026-01-06", "isin": "DE0006305006", "shares": 324.0, "price": 9.245, "amount": 2995.38, "fee": 0.0, "tax": 0}, {"type": "dividend", "date": "2026-01-30", "isin": "LU1883321298", "amount": 25.07, "tax": 0}, {"type": "buy", "date": "2026-02-02", "isin": "LU1883321298", "shares": 3.2671, "price": 79.9634, "amount": 261.25, "fee": -11.25, "tax": 0}, {"type": "sell", "date": "2026-02-05", "isin": "DE0005190003", "shares": 37.0, "price": 89.84, "amount": 3324.08, "fee": 0.0, "tax": 0, "platform": "Tradegate"}, {"type": "dividend", "date": "2026-02-10", "isin": "DE000TUAG000", "amount": 36.6, "tax": 0}, {"type": "sell", "date": "2026-02-18", "isin": "DE0008303504", "shares": 20.0, "price": 16.46, "amount": 319.2, "fee": 10.0, "tax": 0, "platform": "Tradegate"}, {"type": "buy", "date": "2026-03-02", "isin": "LU1883321298", "shares": 3.2367, "price": 80.7158, "amount": 261.25, "fee": -11.25, "tax": 0}, {"type": "buy", "date": "2026-03-03", "isin": "DE000A0H08M3", "shares": 100.0, "price": 48.7, "amount": 4870.0, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2026-04-01", "isin": "LU1883321298", "shares": 3.3512, "price": 77.957, "amount": 261.25, "fee": -11.25, "tax": 0}, {"type": "buy", "date": "2026-04-24", "isin": "DE000A0Z23Q5", "shares": 50.0, "price": 59.9, "amount": 2995.0, "fee": 0.0, "tax": 0}, {"type": "dividend", "date": "2026-04-30", "isin": "LU1883321298", "amount": 30.66, "tax": 0}, {"type": "buy", "date": "2026-05-04", "isin": "LU1883321298", "shares": 3.2208, "price": 81.1129, "amount": 261.25, "fee": -11.25, "tax": 0}, {"type": "dividend", "date": "2026-05-26", "isin": "US2515613048", "amount": 22.52, "tax": 0}, {"type": "dividend", "date": "2026-05-29", "isin": "IE00B1XNHC34", "amount": 1.64, "tax": 0}, {"type": "buy", "date": "2026-06-02", "isin": "LU1883321298", "shares": 3.0607, "price": 85.3556, "amount": 261.25, "fee": -11.25, "tax": 0}, {"type": "buy", "date": "2026-06-12", "isin": "DE0007164600", "shares": 21.0, "price": 139.02, "amount": 2919.42, "fee": 0.0, "tax": 0}, {"type": "sell", "date": "2026-06-24", "isin": "DE000A0H08M3", "shares": 100.0, "price": 49.495, "amount": 4949.5, "fee": 0.0, "tax": 0, "platform": "Tradegate"}, {"type": "sell", "date": "2026-06-25", "isin": "US2515613048", "shares": 100.0, "price": 9.65, "amount": 955.0, "fee": 10.0, "tax": 0, "platform": "Gettex"}, {"type": "buy", "date": "2026-06-26", "isin": "IE00B4L5Y983", "shares": 24.0, "price": 123.09, "amount": 2954.16, "fee": 0.0, "tax": 0}, {"type": "buy", "date": "2026-06-26", "isin": "IE00BK5BQT80", "shares": 18.0, "price": 162.68, "amount": 2928.24, "fee": 0.0, "tax": 0}], "costs": [{"date": "2006-12-31", "amount": -10.0, "account": "VW Leistungen", "isin": "DE0008476524"}, {"date": "2006-12-31", "amount": -3.66, "account": "Anlagekonto", "isin": "DE0008476524"}, {"date": "2007-12-31", "amount": -12.36, "account": "VW Leistungen", "isin": "DE0008476524"}, {"date": "2007-12-31", "amount": -22.56, "account": "Anlagekonto", "isin": "DE0008476524"}, {"date": "2008-12-31", "amount": -12.36, "account": "VW Leistungen", "isin": "DE0008476524"}, {"date": "2008-12-31", "amount": -22.56, "account": "Anlagekonto", "isin": "DE0008476524"}, {"date": "2009-12-31", "amount": -13.56, "account": "VW Leistungen", "isin": "DE0008476524"}, {"date": "2009-12-31", "amount": -24.56, "account": "Anlagekonto", "isin": "DE0008476524"}, {"date": "2010-12-31", "amount": -13.8, "account": "VW Leistungen", "isin": "DE0008476524"}, {"date": "2010-12-31", "amount": -24.96, "account": "Anlagekonto", "isin": "DE0008476524"}, {"date": "2011-12-31", "amount": -13.8, "account": "VW Leistungen", "isin": "DE0008476524"}, {"date": "2011-12-31", "amount": -24.96, "account": "Anlagekonto", "isin": "DE0008476524"}, {"date": "2012-12-31", "amount": -13.8, "account": "VW Leistungen", "isin": "DE0008476524"}, {"date": "2012-12-31", "amount": -24.96, "account": "Anlagekonto", "isin": "DE0008476524"}, {"date": "2013-12-31", "amount": -13.8, "account": "VW Leistungen", "isin": "DE0008476524"}, {"date": "2013-12-31", "amount": -24.96, "account": "Anlagekonto", "isin": "DE0008476524"}, {"date": "2014-12-31", "amount": -13.8, "account": "VW Leistungen", "isin": "DE0008476524"}, {"date": "2014-12-31", "amount": -24.96, "account": "Anlagekonto", "isin": "DE0008476524"}, {"date": "2015-12-31", "amount": -13.8, "account": "VW Leistungen", "isin": "DE0008476524"}, {"date": "2015-12-31", "amount": -27.42, "account": "Anlagekonto", "isin": "DE0008476524"}, {"date": "2016-12-31", "amount": -13.8, "account": "VW Leistungen", "isin": "DE0008476524"}, {"date": "2016-12-31", "amount": -29.88, "account": "Anlagekonto", "isin": "DE0008476524"}, {"date": "2017-12-31", "amount": -13.8, "account": "VW Leistungen", "isin": "DE0008476524"}, {"date": "2017-12-31", "amount": -29.88, "account": "Anlagekonto", "isin": "DE0008476524"}, {"date": "2018-12-31", "amount": -13.8, "account": "VW Leistungen", "isin": "DE0008476524"}, {"date": "2018-12-31", "amount": -27.39, "account": "Anlagekonto", "isin": "DE0008476524"}, {"date": "2019-12-31", "amount": -13.8, "account": "VW Leistungen", "isin": "DE0008476524"}, {"date": "2019-12-31", "amount": -29.88, "account": "Anlagekonto", "isin": "DE0008476524"}, {"date": "2020-12-31", "amount": -13.62, "account": "VW Leistungen", "isin": "DE0008476524"}, {"date": "2020-12-31", "amount": -33.9, "account": "Anlagekonto", "isin": "DE0008476524"}, {"date": "2021-12-31", "amount": -12.9, "account": "VW Leistungen", "isin": "DE0008476524"}, {"date": "2022-12-31", "amount": -12.0, "account": "VW Leistungen", "isin": "DE0008476524"}, {"date": "2023-12-31", "amount": -13.8, "account": "VW Leistungen", "isin": "DE0008476524"}, {"date": "2024-12-31", "amount": -13.8, "account": "VW Leistungen", "isin": "DE0008476524"}, {"date": "2025-12-31", "amount": -1.15, "account": "VW Leistungen", "isin": "DE0008476524"}]};
+
+let state = { securities: [], activities: [], costs: [], prices: {} };
+const fmtEUR = n => (n<0?'−':'') + Math.abs(n).toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' €';
+const fmtPct = n => (n>0?'+':'') + n.toLocaleString('de-DE',{minimumFractionDigits:1,maximumFractionDigits:1}) + ' %';
+const fmtNum = n => n.toLocaleString('de-DE',{minimumFractionDigits:0,maximumFractionDigits:4});
+const fmtDate = s => { const d=new Date(s); return d.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'}); };
+
+function secByIsin(isin){ return state.securities.find(s=>s.isin===isin); }
+
+/* ---------- Data loading ---------- */
+async function loadAll(){
+  const [secSnap, actSnap, costSnap] = await Promise.all([
+    db.collection(COL_SEC).get(), db.collection(COL_ACT).get(), db.collection(COL_COST).get()
+  ]);
+  state.securities = secSnap.docs.map(d=>({id:d.id, ...d.data()}));
+  state.activities = actSnap.docs.map(d=>({id:d.id, ...d.data()}));
+  state.costs = costSnap.docs.map(d=>({id:d.id, ...d.data()}));
+  document.getElementById('lastSync').textContent = 'Stand ' + new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+  renderAll();
+}
+
+async function importSeed(){
+  const btn = document.getElementById('importBtn');
+  btn.disabled = true; btn.textContent = 'Importiere…';
+  try{
+    let batch = db.batch(); let n = 0;
+    const commitIfNeeded = async ()=>{ if(n>=400){ await batch.commit(); batch = db.batch(); n=0; } };
+    for(const s of SEED.securities){
+      batch.set(db.collection(COL_SEC).doc(s.isin), s); n++; await commitIfNeeded();
+    }
+    for(const a of SEED.activities){
+      batch.set(db.collection(COL_ACT).doc(), a); n++; await commitIfNeeded();
+    }
+    for(const c of SEED.costs){
+      batch.set(db.collection(COL_COST).doc(), c); n++; await commitIfNeeded();
+    }
+    if(n>0) await batch.commit();
+    document.getElementById('importStatus').innerHTML = '<span style="color:var(--pos)">Import abgeschlossen: '+SEED.securities.length+' Wertpapiere, '+SEED.activities.length+' Aktivitäten, '+SEED.costs.length+' Kosteneinträge.</span>';
+    await loadAll();
+  }catch(e){
+    document.getElementById('importStatus').innerHTML = '<span style="color:var(--neg)">Import fehlgeschlagen: '+e.message+'</span>';
+  }
+  btn.disabled = false; btn.textContent = 'Bestandsdaten importieren';
+}
+
+/* ---------- Performance engine (Durchschnittskosten-Methode) ---------- */
+function computePositions(asOfDate){
+  const acts = state.activities
+    .filter(a => !asOfDate || a.date <= asOfDate)
+    .slice().sort((a,b)=> a.date.localeCompare(b.date));
+  const pos = {};
+  const ensure = isin => pos[isin] || (pos[isin] = {isin, shares:0, invested:0, realizedPL:0, dividends:0, totalBuyVolume:0});
+  for(const a of acts){
+    const p = ensure(a.isin);
+    if(a.type === 'buy'){
+      p.shares += a.shares;
+      p.invested += a.amount + (a.fee||0);
+      p.totalBuyVolume += a.amount + (a.fee||0);
+    } else if(a.type === 'sell'){
+      const avgCost = p.shares > 0 ? p.invested / p.shares : 0;
+      const soldShares = Math.min(a.shares, p.shares);
+      const costOfSold = avgCost * soldShares;
+      const netProceeds = a.amount - (a.fee||0);
+      p.realizedPL += netProceeds - costOfSold;
+      p.invested -= costOfSold;
+      p.shares -= soldShares;
+      if(p.shares < 1e-9){ p.shares = 0; p.invested = 0; }
+    } else if(a.type === 'dividend'){
+      p.dividends += a.amount;
+    }
+  }
+  return pos;
+}
+
+function computeCostsTotal(asOfDate){
+  return state.costs.filter(c => !asOfDate || c.date <= asOfDate).reduce((s,c)=>s+c.amount,0);
+}
+
+/* ---------- Price fetching (no API key: stooq -> yahoo, via public CORS proxy) ---------- */
+function proxied(url){ return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url); }
+
+async function fetchStooq(symbol){
+  const url = `https://stooq.com/q/l/?s=${encodeURIComponent(symbol)}&f=sd2t2ohlcv&h&e=csv`;
+  const res = await fetch(proxied(url));
+  const txt = await res.text();
+  const lines = txt.trim().split('\n');
+  if(lines.length < 2) throw new Error('no data');
+  const cols = lines[1].split(',');
+  const close = parseFloat(cols[6]);
+  if(!close || isNaN(close)) throw new Error('n/d');
+  return close;
+}
+async function fetchYahoo(symbol){
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`;
+  const res = await fetch(proxied(url));
+  const json = await res.json();
+  const price = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
+  if(!price) throw new Error('n/d');
+  return price;
+}
+async function fetchLivePrice(security){
+  if(!security.symbol) return {error:'kein Kürzel hinterlegt'};
+  try{ const p = await fetchStooq(security.symbol); return {price:p, source:'stooq'}; }
+  catch(e){
+    try{ const p = await fetchYahoo(security.symbol); return {price:p, source:'yahoo'}; }
+    catch(e2){ return {error:'Kurs nicht verfügbar'}; }
+  }
+}
+async function refreshAllPrices(){
+  document.getElementById('priceStatusText').textContent = 'Aktualisiere…';
+  const held = Object.values(computePositions()).filter(p=>p.shares>1e-9);
+  let ok=0, fail=0;
+  for(const p of held){
+    const sec = secByIsin(p.isin); if(!sec) continue;
+    const r = await fetchLivePrice(sec);
+    if(r.price){ state.prices[p.isin] = {price:r.price, source:r.source, at:Date.now()}; ok++; }
+    else { fail++; }
+  }
+  document.getElementById('priceStatusText').textContent = `${ok} Kurse aktualisiert${fail?', '+fail+' nicht verfügbar':''}.`;
+  renderAll();
+}
+async function fetchHistoricalPrice(symbol, dateISO){
+  const d2 = dateISO.replace(/-/g,'');
+  const dt = new Date(dateISO); dt.setDate(dt.getDate()-7);
+  const d1 = dt.toISOString().slice(0,10).replace(/-/g,'');
+  const url = `https://stooq.com/q/d/l/?s=${encodeURIComponent(symbol)}&d1=${d1}&d2=${d2}&i=d`;
+  const res = await fetch(proxied(url));
+  const txt = await res.text();
+  const lines = txt.trim().split('\n').filter(l=>l && !l.startsWith('Date,') === false || true);
+  const rows = txt.trim().split('\n').slice(1).filter(Boolean);
+  if(rows.length===0) throw new Error('no data');
+  const last = rows[rows.length-1].split(',');
+  const close = parseFloat(last[4]);
+  if(isNaN(close)) throw new Error('n/d');
+  return close;
+}
+
+/* ---------- Rendering ---------- */
+function renderAll(){
+  renderDashboard(); renderPositions(); renderActivities(); renderSettingsExtras();
+  populateSelects();
+}
+
+function totalsFromPositions(pos){
+  let depotwert=0, investedNow=0, realized=0, dividends=0, totalBuyVolume=0;
+  for(const p of Object.values(pos)){
+    const price = state.prices[p.isin]?.price;
+    if(p.shares>1e-9 && price) depotwert += p.shares*price;
+    investedNow += p.invested; realized += p.realizedPL; dividends += p.dividends; totalBuyVolume += p.totalBuyVolume;
+  }
+  const costs = computeCostsTotal();
+  const unrealized = depotwert - investedNow;
+  const result = unrealized + realized + dividends + costs;
+  const returnPct = totalBuyVolume>0 ? (result/totalBuyVolume*100) : 0;
+  return {depotwert, investedNow, unrealized, realized, dividends, costs, result, returnPct, totalBuyVolume};
+}
+
+function renderDashboard(){
+  const pos = computePositions();
+  const t = totalsFromPositions(pos);
+  const missingPrices = Object.values(pos).some(p=>p.shares>1e-9 && !state.prices[p.isin]?.price);
+  const banner = document.getElementById('dashboardBanner');
+  banner.innerHTML = missingPrices ? `<div class="banner">Für einige Positionen fehlen aktuelle Kurse. <button class="btn small ghost" onclick="refreshAllPrices()" style="margin-left:6px;">Kurse abrufen</button></div>` : '';
+
+  const stats = [
+    {label:'Depotwert', value:fmtEUR(t.depotwert)},
+    {label:'Investiert (aktuell)', value:fmtEUR(t.investedNow)},
+    {label:'Unrealisiert', value:fmtEUR(t.unrealized), cls:t.unrealized>=0?'pos':'neg'},
+    {label:'Realisiert (Verkäufe)', value:fmtEUR(t.realized), cls:t.realized>=0?'pos':'neg'},
+    {label:'Dividenden gesamt', value:fmtEUR(t.dividends), cls:'pos'},
+    {label:'Depotkosten gesamt', value:fmtEUR(t.costs), cls:'neg'},
+    {label:'Gesamtergebnis', value:fmtEUR(t.result), cls:t.result>=0?'pos':'neg'},
+    {label:'Gesamtrendite*', value:fmtPct(t.returnPct), cls:t.returnPct>=0?'pos':'neg'},
+  ];
+  document.getElementById('heroStats').innerHTML = stats.map(s=>
+    `<div class="stat"><div class="label">${s.label}</div><div class="value ${s.cls||''}">${s.value}</div></div>`
+  ).join('') + `<div class="stat" style="grid-column:1/-1; background:transparent; padding-top:4px;"><div class="delta">*vereinfachte Rendite = Gesamtergebnis ÷ gesamtes investiertes Kapital (kein IZF/TWR)</div></div>`;
+
+  const rows = Object.values(pos).filter(p=>p.shares>1e-9).map(p=>{
+    const sec = secByIsin(p.isin); const price = state.prices[p.isin]?.price;
+    const val = price ? p.shares*price : null;
+    const upl = val!==null ? val - p.invested : null;
+    return {...p, sec, price, val, upl};
+  }).sort((a,b)=> (b.val||0)-(a.val||0)).slice(0,5);
+
+  document.getElementById('topPositionsTable').innerHTML = `
+    <tr><th style="text-align:left">Wertpapier</th><th>Bestand</th><th>Wert</th><th>Erg.</th></tr>
+    ${rows.map(r=>`<tr>
+      <td class="name">${r.sec?.name||r.isin}<span class="isin">${r.isin}</span></td>
+      <td>${fmtNum(r.shares)}</td>
+      <td>${r.val!==null?fmtEUR(r.val):'<span class="muted small">n/v</span>'}</td>
+      <td class="${r.upl>=0?'pos':'neg'}">${r.upl!==null?fmtEUR(r.upl):'—'}</td>
+    </tr>`).join('') || `<tr><td colspan="4" class="empty">Noch keine Positionen. Importiere deine Bestandsdaten unter Einstellungen.</td></tr>`}
+  `;
+
+  const recent = state.activities.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,6);
+  document.getElementById('recentActivities').innerHTML = recent.length ? recent.map(renderActivityRow).join('') :
+    `<div class="empty"><div class="big">Noch keine Aktivitäten</div>Importiere deine Bestandsdaten oder erfasse die erste Buchung.</div>`;
+}
+
+function renderPositions(){
+  const pos = computePositions();
+  const rows = Object.values(pos).filter(p=>p.shares>1e-9 || p.realizedPL!==0).map(p=>{
+    const sec = secByIsin(p.isin); const priceInfo = state.prices[p.isin];
+    const price = priceInfo?.price;
+    const val = (p.shares>1e-9 && price) ? p.shares*price : null;
+    const avgCost = p.shares>1e-9 ? p.invested/p.shares : 0;
+    const upl = val!==null ? val - p.invested : null;
+    const uplPct = (val!==null && p.invested>0) ? (upl/p.invested*100) : null;
+    return {p, sec, price, val, avgCost, upl, uplPct, priceInfo};
+  }).sort((a,b)=> (a.sec?.name||'').localeCompare(b.sec?.name||''));
+
+  document.getElementById('positionsTable').innerHTML = `
+    <tr><th style="text-align:left">Wertpapier</th><th>Bestand</th><th>Ø Kosten</th><th>Kurs</th><th>Wert</th><th>Erg.</th><th>Erg. %</th><th>Div.</th></tr>
+    ${rows.map(r=>`<tr>
+      <td class="name">${r.sec?.name||r.p.isin}<span class="isin">${r.p.isin}${r.sec?.symbol?(' · '+r.sec.symbol):''}</span></td>
+      <td>${fmtNum(r.p.shares)}</td>
+      <td>${r.avgCost?fmtEUR(r.avgCost):'—'}</td>
+      <td>${r.price?fmtEUR(r.price)+`<span class="pricebadge live">${r.priceInfo.source}</span>`:'<span class="pricebadge missing">n/v</span>'}</td>
+      <td>${r.val!==null?fmtEUR(r.val):'—'}</td>
+      <td class="${r.upl>=0?'pos':'neg'}">${r.upl!==null?fmtEUR(r.upl):'—'}</td>
+      <td class="${r.uplPct>=0?'pos':'neg'}">${r.uplPct!==null?fmtPct(r.uplPct):'—'}</td>
+      <td>${fmtEUR(r.p.dividends)}</td>
+    </tr>`).join('') || `<tr><td colspan="8" class="empty">Keine Positionen vorhanden.</td></tr>`}
+  `;
+}
+
+function renderActivityRow(a){
+  const sec = a.isin ? secByIsin(a.isin) : null;
+  const typeLabel = {buy:'Kauf', sell:'Verkauf', dividend:'Dividende', cost:'Kosten'}[a.type] || a.type;
+  let amount, meta;
+  if(a.type==='buy'||a.type==='sell'){
+    amount = (a.type==='buy'?'−':'+') + fmtEUR(Math.abs(a.amount + (a.fee||0)));
+    meta = `${fmtNum(a.shares)} Stk · ${fmtEUR(a.price)}`;
+  } else if(a.type==='dividend'){
+    amount = '+'+fmtEUR(a.amount); meta = 'Dividende';
+  } else {
+    amount = fmtEUR(a.amount); meta = a.account || 'Depotkosten';
+  }
+  return `<div class="activity-row">
+    <span class="tag ${a.type}">${typeLabel}</span>
+    <span>${sec ? sec.name : (a.account||'Depotkosten')}<span class="meta" style="display:block;">${fmtDate(a.date)} · ${meta}</span></span>
+    <span class="amt">${amount}</span>
+  </div>`;
+}
+
+function renderActivities(){
+  const typeFilter = document.getElementById('activityFilter').value;
+  const secFilter = document.getElementById('activitySecurityFilter').value;
+  let acts = state.activities.slice();
+  if(typeFilter!=='all') acts = acts.filter(a=>a.type===typeFilter);
+  if(secFilter!=='all') acts = acts.filter(a=>a.isin===secFilter);
+  acts.sort((a,b)=>b.date.localeCompare(a.date));
+  document.getElementById('activitiesList').innerHTML = acts.length ? acts.map(renderActivityRow).join('') :
+    `<div class="empty">Keine Aktivitäten für diesen Filter.</div>`;
+}
+
+function populateSelects(){
+  const secs = state.securities.slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const opts = secs.map(s=>`<option value="${s.isin}">${s.name}</option>`).join('');
+  document.getElementById('formIsin').innerHTML = opts;
+  const filterSel = document.getElementById('activitySecurityFilter');
+  filterSel.innerHTML = '<option value="all">Alle Wertpapiere</option>' + opts;
+}
+
+function renderSettingsExtras(){
+  const empty = state.securities.length===0 && state.activities.length===0;
+  document.getElementById('importBtn').style.display = empty ? 'inline-block' : 'none';
+  if(!empty) document.getElementById('importStatus').innerHTML = `<span class="muted">Bereits importiert: ${state.securities.length} Wertpapiere, ${state.activities.length} Aktivitäten, ${state.costs.length} Kosteneinträge.</span>`;
+}
+
+/* ---------- History / Stichtag ---------- */
+async function calcHistory(){
+  const dateInput = document.getElementById('historyDate').value;
+  if(!dateInput) return;
+  const stamp = document.getElementById('stampDate');
+  const dt = new Date(dateInput);
+  stamp.querySelector('.d1').textContent = 'Stand';
+  stamp.querySelector('.d2').textContent = dt.toLocaleDateString('de-DE',{day:'2-digit',month:'short'});
+  stamp.querySelector('.d3').textContent = dt.getFullYear();
+
+  const resultEl = document.getElementById('historyResult');
+  resultEl.innerHTML = '<div class="card muted small">Berechne…</div>';
+
+  const pos = computePositions(dateInput);
+  const costsTotal = computeCostsTotal(dateInput);
+  let depotwert = 0, investedNow = 0, realized = 0, dividends = 0, missing = 0;
+  const rows = [];
+  for(const p of Object.values(pos)){
+    investedNow += p.invested; realized += p.realizedPL; dividends += p.dividends;
+    if(p.shares <= 1e-9) continue;
+    const sec = secByIsin(p.isin);
+    let price = null;
+    if(sec?.symbol){
+      try{ price = await fetchHistoricalPrice(sec.symbol, dateInput); }catch(e){ missing++; }
+    } else { missing++; }
+    const val = price ? price*p.shares : null;
+    if(val!==null) depotwert += val;
+    rows.push({sec, p, price, val});
+  }
+  const unrealized = depotwert - investedNow;
+  const result = unrealized + realized + dividends + costsTotal;
+
+  resultEl.innerHTML = `
+    <div class="hero">
+      <div class="stat"><div class="label">Depotwert am Stichtag</div><div class="value">${fmtEUR(depotwert)}</div></div>
+      <div class="stat"><div class="label">Investiert (zu dem Zeitpunkt)</div><div class="value">${fmtEUR(investedNow)}</div></div>
+      <div class="stat"><div class="label">Kum. Dividenden &amp; Realisiert</div><div class="value pos">${fmtEUR(dividends+realized)}</div></div>
+      <div class="stat"><div class="label">Gesamtergebnis bis dahin</div><div class="value ${result>=0?'pos':'neg'}">${fmtEUR(result)}</div></div>
+    </div>
+    ${missing>0?`<div class="banner small">Für ${missing} Position(en) war kein historischer Kurs verfügbar – Wert dort nicht berücksichtigt.</div>`:''}
+    <div class="card"><table class="ledger">
+      <tr><th style="text-align:left">Wertpapier</th><th>Bestand</th><th>Kurs (Stichtag)</th><th>Wert</th></tr>
+      ${rows.map(r=>`<tr>
+        <td class="name">${r.sec?.name||r.p.isin}</td>
+        <td>${fmtNum(r.p.shares)}</td>
+        <td>${r.price?fmtEUR(r.price):'<span class="muted small">n/v</span>'}</td>
+        <td>${r.val!==null?fmtEUR(r.val):'—'}</td>
+      </tr>`).join('')}
+    </table></div>
+  `;
+}
+
+/* ---------- Modal / form ---------- */
+const typeFieldMap = {
+  buy:    {sec:true, shares:true, price:true, amount:true, fee:true, account:false},
+  sell:   {sec:true, shares:true, price:true, amount:true, fee:true, account:false},
+  dividend:{sec:true, shares:false, price:false, amount:true, fee:false, account:false},
+  cost:   {sec:false, shares:false, price:false, amount:true, fee:false, account:true},
+};
+function applyFormType(){
+  const t = document.getElementById('formType').value;
+  const f = typeFieldMap[t];
+  document.getElementById('formSecWrap').style.display = f.sec?'block':'none';
+  document.getElementById('formSharesWrap').style.display = f.shares?'block':'none';
+  document.getElementById('formPriceWrap').style.display = f.price?'block':'none';
+  document.getElementById('formAmountWrap').style.display = f.amount?'block':'none';
+  document.getElementById('formFeeWrap').style.display = f.fee?'block':'none';
+  document.getElementById('formAccountWrap').style.display = f.account?'block':'none';
+}
+function openModal(){
+  document.getElementById('formDate').value = new Date().toISOString().slice(0,10);
+  document.getElementById('formType').value = 'buy';
+  applyFormType();
+  document.getElementById('modalOverlay').classList.add('show');
+}
+function closeModal(){ document.getElementById('modalOverlay').classList.remove('show'); }
+
+async function saveActivity(){
+  const type = document.getElementById('formType').value;
+  const date = document.getElementById('formDate').value;
+  if(!date){ alert('Bitte ein Datum wählen.'); return; }
+  const doc = { type, date };
+  if(typeFieldMap[type].sec) doc.isin = document.getElementById('formIsin').value;
+  if(typeFieldMap[type].shares) doc.shares = parseFloat(document.getElementById('formShares').value||0);
+  if(typeFieldMap[type].price) doc.price = parseFloat(document.getElementById('formPrice').value||0);
+  if(typeFieldMap[type].amount) doc.amount = parseFloat(document.getElementById('formAmount').value||0);
+  if(typeFieldMap[type].fee) doc.fee = parseFloat(document.getElementById('formFee').value||0);
+  if(typeFieldMap[type].account) doc.account = document.getElementById('formAccount').value||'';
+  doc.tax = 0;
+  if(type==='cost') doc.amount = -Math.abs(doc.amount);
+
+  const targetCol = type==='cost' ? COL_COST : COL_ACT;
+  await db.collection(targetCol).add(doc);
+  closeModal();
+  await loadAll();
+}
+
+async function saveNewSecurity(){
+  const isin = document.getElementById('newSecIsin').value.trim().toUpperCase();
+  const name = document.getElementById('newSecName').value.trim();
+  if(!isin || !name){ alert('Name und ISIN sind erforderlich.'); return; }
+  await db.collection(COL_SEC).doc(isin).set({
+    isin, name,
+    symbol: document.getElementById('newSecSymbol').value.trim() || null,
+    art: document.getElementById('newSecArt').value,
+    wkn: null,
+  });
+  document.getElementById('newSecName').value='';
+  document.getElementById('newSecIsin').value='';
+  document.getElementById('newSecSymbol').value='';
+  await loadAll();
+}
+
+/* ---------- Wiring ---------- */
+document.querySelectorAll('nav.tabs button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('view-'+btn.dataset.view).classList.add('active');
+  });
+});
+document.getElementById('fabAdd').addEventListener('click', openModal);
+document.getElementById('formCancel').addEventListener('click', closeModal);
+document.getElementById('modalOverlay').addEventListener('click', e=>{ if(e.target.id==='modalOverlay') closeModal(); });
+document.getElementById('formType').addEventListener('change', applyFormType);
+document.getElementById('formSave').addEventListener('click', saveActivity);
+document.getElementById('importBtn').addEventListener('click', importSeed);
+document.getElementById('addSecBtn').addEventListener('click', saveNewSecurity);
+document.getElementById('refreshPricesBtn').addEventListener('click', refreshAllPrices);
+document.getElementById('activityFilter').addEventListener('change', renderActivities);
+document.getElementById('activitySecurityFilter').addEventListener('change', renderActivities);
+document.getElementById('calcHistoryBtn').addEventListener('click', calcHistory);
+document.getElementById('historyDate').value = new Date().toISOString().slice(0,10);
+
+loadAll();
+</script>
+</body>
+</html>
