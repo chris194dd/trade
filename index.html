@@ -213,6 +213,19 @@ input:focus,select:focus{ outline:2px solid var(--brass); outline-offset:1px; }
 .empty{ text-align:center; padding:40px 20px; color:var(--muted-text); }
 .empty .big{ font-family:var(--display); font-size:17px; color:var(--ink); margin-bottom:6px; }
 
+/* Detail view */
+.backlink{ background:none; border:none; cursor:pointer; color:var(--muted-text); font-family:var(--body); font-size:13px; font-weight:600; padding:0 0 14px; }
+.backlink:hover{ color:var(--ink); }
+.namelink{ cursor:pointer; text-decoration:none; border-bottom:1px dotted var(--muted-text); }
+.namelink:hover{ color:var(--brass); }
+.chartbox{ width:100%; overflow-x:auto; }
+.chartbox svg{ display:block; }
+.findbtn{ font-size:10.5px; padding:2px 7px; border-radius:6px; border:1px solid var(--brass); background:none; color:var(--brass); cursor:pointer; margin-left:6px; font-family:var(--body); font-weight:600; }
+.symbol-candidate{ display:flex; justify-content:space-between; align-items:center; padding:10px 12px; border:1px solid var(--border); border-radius:9px; margin-bottom:8px; cursor:pointer; background:var(--paper); }
+.symbol-candidate:hover{ border-color:var(--brass); }
+.symbol-candidate .sym{ font-family:var(--mono); font-weight:600; }
+.symbol-candidate .exch{ font-size:11px; color:var(--muted-text); }
+
 @media (max-width:480px){
   .formgrid{ grid-template-columns:1fr; }
   .hero .stat .value{ font-size:21px; }
@@ -291,6 +304,11 @@ input:focus,select:focus{ outline:2px solid var(--brass); outline-offset:1px; }
     <div id="historyResult"></div>
   </section>
 
+  <section class="view" id="view-detail">
+    <button class="backlink" id="detailBack">← Zurück zu Wertpapiere</button>
+    <div id="detailContent"></div>
+  </section>
+
   <section class="view" id="view-settings">
     <h2 class="section-title">Einstellungen &amp; Import</h2>
     <div class="card" id="importCard">
@@ -312,13 +330,24 @@ input:focus,select:focus{ outline:2px solid var(--brass); outline-offset:1px; }
     </div>
     <div class="card">
       <h3 style="font-family:var(--display); font-size:15px; margin-top:0;">Über diese App</h3>
-      <p class="small muted">Eigene Depot-App – Käufe, Verkäufe, Dividenden &amp; Kosten erfassen, Performance pro Wertpapier &amp; Gesamtstatus auswerten, Stichtag-Abfrage. Daten liegen in deinem Firebase-Projekt. Kursdaten kommen, wo möglich, kostenlos über Stooq/Yahoo – ohne API-Key, daher gelegentlich nicht für jedes Wertpapier verfügbar.</p>
+      <p class="small muted">Eigene Depot-App – Käufe, Verkäufe, Dividenden &amp; Kosten erfassen, Performance pro Wertpapier &amp; Gesamtstatus auswerten, Stichtag-Abfrage. Daten liegen in deinem Firebase-Projekt. Kursdaten kommen, wo möglich, kostenlos über Yahoo/Stooq – ohne API-Key, mit mehreren Proxy- und Symbol-Fallbacks für bessere Trefferquote.</p>
     </div>
   </section>
 
 </main>
 
 <button class="fab" id="fabAdd" title="Aktivität erfassen">+</button>
+
+<div class="modal-overlay" id="symbolModalOverlay">
+  <div class="modal">
+    <h3>Kürzel finden</h3>
+    <p class="small muted" id="symbolModalSubtitle"></p>
+    <div id="symbolCandidates"></div>
+    <div class="row" style="margin-top:14px; justify-content:flex-end;">
+      <button class="btn ghost" id="symbolModalCancel">Schließen</button>
+    </div>
+  </div>
+</div>
 
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal">
@@ -449,13 +478,34 @@ function computeCostsTotal(asOfDate){
   return state.costs.filter(c => !asOfDate || c.date <= asOfDate).reduce((s,c)=>s+c.amount,0);
 }
 
-/* ---------- Price fetching (no API key: stooq -> yahoo, via public CORS proxy) ---------- */
-function proxied(url){ return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url); }
+/* ---------- Price fetching (no API key: multiple proxies, yahoo -> stooq) ---------- */
+const PROXY_BUILDERS = [
+  url => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url),
+  url => 'https://corsproxy.io/?url=' + encodeURIComponent(url),
+  url => 'https://thingproxy.freeboard.io/fetch/' + url,
+];
+async function fetchViaProxies(url, asJson){
+  let lastErr;
+  for(const build of PROXY_BUILDERS){
+    try{
+      const res = await fetch(build(url));
+      if(!res.ok) throw new Error('http '+res.status);
+      return asJson ? await res.json() : await res.text();
+    }catch(e){ lastErr = e; }
+  }
+  throw lastErr || new Error('Alle Proxies fehlgeschlagen');
+}
 
+async function fetchYahoo(symbol){
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`;
+  const json = await fetchViaProxies(url, true);
+  const price = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
+  if(!price) throw new Error('n/d');
+  return price;
+}
 async function fetchStooq(symbol){
   const url = `https://stooq.com/q/l/?s=${encodeURIComponent(symbol)}&f=sd2t2ohlcv&h&e=csv`;
-  const res = await fetch(proxied(url));
-  const txt = await res.text();
+  const txt = await fetchViaProxies(url, false);
   const lines = txt.trim().split('\n');
   if(lines.length < 2) throw new Error('no data');
   const cols = lines[1].split(',');
@@ -463,19 +513,11 @@ async function fetchStooq(symbol){
   if(!close || isNaN(close)) throw new Error('n/d');
   return close;
 }
-async function fetchYahoo(symbol){
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`;
-  const res = await fetch(proxied(url));
-  const json = await res.json();
-  const price = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
-  if(!price) throw new Error('n/d');
-  return price;
-}
 async function fetchLivePrice(security){
   if(!security.symbol) return {error:'kein Kürzel hinterlegt'};
-  try{ const p = await fetchStooq(security.symbol); return {price:p, source:'stooq'}; }
+  try{ const p = await fetchYahoo(security.symbol); return {price:p, source:'yahoo'}; }
   catch(e){
-    try{ const p = await fetchYahoo(security.symbol); return {price:p, source:'yahoo'}; }
+    try{ const p = await fetchStooq(security.symbol); return {price:p, source:'stooq'}; }
     catch(e2){ return {error:'Kurs nicht verfügbar'}; }
   }
 }
@@ -497,9 +539,7 @@ async function fetchHistoricalPrice(symbol, dateISO){
   const dt = new Date(dateISO); dt.setDate(dt.getDate()-7);
   const d1 = dt.toISOString().slice(0,10).replace(/-/g,'');
   const url = `https://stooq.com/q/d/l/?s=${encodeURIComponent(symbol)}&d1=${d1}&d2=${d2}&i=d`;
-  const res = await fetch(proxied(url));
-  const txt = await res.text();
-  const lines = txt.trim().split('\n').filter(l=>l && !l.startsWith('Date,') === false || true);
+  const txt = await fetchViaProxies(url, false);
   const rows = txt.trim().split('\n').slice(1).filter(Boolean);
   if(rows.length===0) throw new Error('no data');
   const last = rows[rows.length-1].split(',');
@@ -507,6 +547,43 @@ async function fetchHistoricalPrice(symbol, dateISO){
   if(isNaN(close)) throw new Error('n/d');
   return close;
 }
+
+/* ---------- Symbol auto-finder (Yahoo search, no key) ---------- */
+async function searchSymbol(name){
+  const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(name)}&quotesCount=6&newsCount=0`;
+  const json = await fetchViaProxies(url, true);
+  return (json.quotes||[]).filter(q=>q.symbol).map(q=>({
+    symbol:q.symbol, name:q.shortname||q.longname||q.symbol, exch:q.exchDisp||q.exchange||''
+  }));
+}
+async function openSymbolFinder(isin){
+  const sec = secByIsin(isin); if(!sec) return;
+  document.getElementById('symbolModalSubtitle').textContent = `Suche für "${sec.name}" – Treffer auswählen oder oben in den Einstellungen manuell eintragen.`;
+  document.getElementById('symbolCandidates').innerHTML = '<p class="small muted">Suche läuft…</p>';
+  document.getElementById('symbolModalOverlay').classList.add('show');
+  try{
+    const candidates = await searchSymbol(sec.name);
+    document.getElementById('symbolCandidates').innerHTML = candidates.length ? candidates.map(c=>
+      `<div class="symbol-candidate" data-symbol="${c.symbol}" data-isin="${isin}">
+        <div><span class="sym">${c.symbol}</span> <span class="exch">${c.exch}</span><br><span class="small muted">${c.name}</span></div>
+        <span class="small">Übernehmen →</span>
+      </div>`).join('') : '<p class="small muted">Keine Treffer gefunden. Trage das Kürzel manuell in den Einstellungen ein.</p>';
+    document.querySelectorAll('.symbol-candidate').forEach(el=>{
+      el.addEventListener('click', async ()=>{
+        await db.collection(COL_SEC).doc(el.dataset.isin).update({symbol: el.dataset.symbol});
+        document.getElementById('symbolModalOverlay').classList.remove('show');
+        await loadAll();
+        const sec2 = secByIsin(el.dataset.isin);
+        const r = await fetchLivePrice(sec2);
+        if(r.price){ state.prices[el.dataset.isin] = {price:r.price, source:r.source, at:Date.now()}; renderAll(); }
+      });
+    });
+  }catch(e){
+    document.getElementById('symbolCandidates').innerHTML = '<p class="small muted">Suche fehlgeschlagen. Versuch es später erneut oder trage das Kürzel manuell ein.</p>';
+  }
+}
+document.getElementById('symbolModalCancel').addEventListener('click', ()=>document.getElementById('symbolModalOverlay').classList.remove('show'));
+document.getElementById('symbolModalOverlay').addEventListener('click', e=>{ if(e.target.id==='symbolModalOverlay') e.currentTarget.classList.remove('show'); });
 
 /* ---------- Rendering ---------- */
 function renderAll(){
@@ -559,12 +636,15 @@ function renderDashboard(){
   document.getElementById('topPositionsTable').innerHTML = `
     <tr><th style="text-align:left">Wertpapier</th><th>Bestand</th><th>Wert</th><th>Erg.</th></tr>
     ${rows.map(r=>`<tr>
-      <td class="name">${r.sec?.name||r.isin}<span class="isin">${r.isin}</span></td>
+      <td class="name"><span class="namelink" data-isin="${r.isin}">${r.sec?.name||r.isin}</span><span class="isin">${r.isin}</span></td>
       <td>${fmtNum(r.shares)}</td>
       <td>${r.val!==null?fmtEUR(r.val):'<span class="muted small">n/v</span>'}</td>
       <td class="${r.upl>=0?'pos':'neg'}">${r.upl!==null?fmtEUR(r.upl):'—'}</td>
     </tr>`).join('') || `<tr><td colspan="4" class="empty">Noch keine Positionen. Importiere deine Bestandsdaten unter Einstellungen.</td></tr>`}
   `;
+  document.querySelectorAll('#topPositionsTable .namelink').forEach(el=>{
+    el.addEventListener('click', ()=>openDetail(el.dataset.isin));
+  });
 
   const recent = state.activities.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,6);
   document.getElementById('recentActivities').innerHTML = recent.length ? recent.map(renderActivityRow).join('') :
@@ -586,15 +666,92 @@ function renderPositions(){
   document.getElementById('positionsTable').innerHTML = `
     <tr><th style="text-align:left">Wertpapier</th><th>Bestand</th><th>Ø Kosten</th><th>Kurs</th><th>Wert</th><th>Erg.</th><th>Erg. %</th><th>Div.</th></tr>
     ${rows.map(r=>`<tr>
-      <td class="name">${r.sec?.name||r.p.isin}<span class="isin">${r.p.isin}${r.sec?.symbol?(' · '+r.sec.symbol):''}</span></td>
+      <td class="name"><span class="namelink" data-isin="${r.p.isin}">${r.sec?.name||r.p.isin}</span><span class="isin">${r.p.isin}${r.sec?.symbol?(' · '+r.sec.symbol):''}</span></td>
       <td>${fmtNum(r.p.shares)}</td>
       <td>${r.avgCost?fmtEUR(r.avgCost):'—'}</td>
-      <td>${r.price?fmtEUR(r.price)+`<span class="pricebadge live">${r.priceInfo.source}</span>`:'<span class="pricebadge missing">n/v</span>'}</td>
+      <td>${r.price?fmtEUR(r.price)+`<span class="pricebadge live">${r.priceInfo.source}</span>`:'<span class="pricebadge missing">n/v</span><button class="findbtn" data-find-isin="${r.p.isin}">Kürzel finden</button>'}</td>
       <td>${r.val!==null?fmtEUR(r.val):'—'}</td>
       <td class="${r.upl>=0?'pos':'neg'}">${r.upl!==null?fmtEUR(r.upl):'—'}</td>
       <td class="${r.uplPct>=0?'pos':'neg'}">${r.uplPct!==null?fmtPct(r.uplPct):'—'}</td>
       <td>${fmtEUR(r.p.dividends)}</td>
     </tr>`).join('') || `<tr><td colspan="8" class="empty">Keine Positionen vorhanden.</td></tr>`}
+  `;
+  document.querySelectorAll('#positionsTable .namelink').forEach(el=>{
+    el.addEventListener('click', ()=>openDetail(el.dataset.isin));
+  });
+  document.querySelectorAll('#positionsTable .findbtn').forEach(el=>{
+    el.addEventListener('click', e=>{ e.stopPropagation(); openSymbolFinder(el.dataset.findIsin); });
+  });
+}
+
+/* ---------- Stock detail view ---------- */
+function sharesChartSVG(points){
+  const W=640, H=150, padL=8, padR=8, padT=14, padB=22;
+  if(points.length===0) return '<p class="small muted">Keine Daten.</p>';
+  const maxY = Math.max(...points.map(p=>p.cum), 0.0001);
+  const x = i => padL + (W-padL-padR) * (points.length===1?0:i/(points.length-1));
+  const y = v => H-padB - (H-padT-padB) * (v/maxY);
+  let path = `M ${x(0)},${y(0)}`;
+  for(let i=1;i<points.length;i++) path += ` L ${x(i)},${y(points[i-1].cum)} L ${x(i)},${y(points[i].cum)}`;
+  const dots = points.map((p,i)=>`<circle cx="${x(i)}" cy="${y(p.cum)}" r="3" fill="${p.type==='sell'?'var(--neg)':'var(--brass)'}"><title>${p.date}: ${p.type} ${p.shares}</title></circle>`).join('');
+  const firstDate = points[0].date, lastDate = points[points.length-1].date;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">
+    <path d="${path}" fill="none" stroke="var(--brass)" stroke-width="2"/>
+    ${dots}
+    <text x="${padL}" y="${H-6}" font-size="10" fill="var(--muted-text)" font-family="var(--mono)">${firstDate}</text>
+    <text x="${W-padR}" y="${H-6}" font-size="10" fill="var(--muted-text)" font-family="var(--mono)" text-anchor="end">${lastDate}</text>
+  </svg>`;
+}
+
+function openDetail(isin){
+  document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-detail').classList.add('active');
+  renderDetail(isin);
+}
+document.getElementById('detailBack').addEventListener('click', ()=>{
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-positions').classList.add('active');
+  document.querySelector('nav.tabs button[data-view="positions"]').classList.add('active');
+});
+
+function renderDetail(isin){
+  const sec = secByIsin(isin);
+  const pos = computePositions()[isin] || {shares:0, invested:0, realizedPL:0, dividends:0};
+  const priceInfo = state.prices[isin];
+  const price = priceInfo?.price;
+  const val = (pos.shares>1e-9 && price) ? pos.shares*price : null;
+  const avgCost = pos.shares>1e-9 ? pos.invested/pos.shares : 0;
+  const upl = val!==null ? val - pos.invested : null;
+  const uplPct = (val!==null && pos.invested>0) ? (upl/pos.invested*100) : null;
+
+  const acts = state.activities.filter(a=>a.isin===isin).slice().sort((a,b)=>a.date.localeCompare(b.date));
+  let cum = 0;
+  const chartPoints = acts.filter(a=>a.type==='buy'||a.type==='sell').map(a=>{
+    cum += a.type==='buy' ? a.shares : -a.shares;
+    return {date:a.date, cum:Math.max(cum,0), type:a.type, shares:a.shares};
+  });
+
+  const stats = [
+    {label:'Bestand', value: fmtNum(pos.shares)},
+    {label:'Ø Einstandskurs', value: avgCost?fmtEUR(avgCost):'—'},
+    {label:'Aktueller Kurs', value: price?fmtEUR(price):'n/v'},
+    {label:'Wert', value: val!==null?fmtEUR(val):'—'},
+    {label:'Investiert', value: fmtEUR(pos.invested)},
+    {label:'Unrealisiert', value: upl!==null?fmtEUR(upl):'—', cls: upl!==null?(upl>=0?'pos':'neg'):''},
+    {label:'Unrealisiert %', value: uplPct!==null?fmtPct(uplPct):'—', cls: uplPct!==null?(uplPct>=0?'pos':'neg'):''},
+    {label:'Realisiert (Verkäufe)', value: fmtEUR(pos.realizedPL), cls: pos.realizedPL>=0?'pos':'neg'},
+    {label:'Dividenden gesamt', value: fmtEUR(pos.dividends), cls:'pos'},
+  ];
+
+  document.getElementById('detailContent').innerHTML = `
+    <h2 class="section-title">${sec?.name||isin}</h2>
+    <div class="small muted" style="margin-bottom:14px;">${isin}${sec?.wkn?(' · WKN '+sec.wkn):''}${sec?.symbol?(' · Kürzel '+sec.symbol):''} · ${sec?.art||''}</div>
+    <div class="hero">${stats.map(s=>`<div class="stat"><div class="label">${s.label}</div><div class="value ${s.cls||''}" style="font-size:19px;">${s.value}</div></div>`).join('')}</div>
+    <h2 class="section-title">Bestand im Zeitverlauf</h2>
+    <div class="card chartbox">${sharesChartSVG(chartPoints)}</div>
+    <h2 class="section-title">Alle Aktivitäten</h2>
+    <div class="card">${acts.slice().reverse().map(renderActivityRow).join('') || '<div class="empty">Keine Aktivitäten.</div>'}</div>
   `;
 }
 
