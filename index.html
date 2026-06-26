@@ -33,6 +33,71 @@
         --soft: #1E1E1E;
     }
 
+    :root {
+        --pos-bg: #E3F3E8;
+        --pos-fg: #1E6B3C;
+        --neg-bg: #FBE4E1;
+        --neg-fg: #A6332B;
+    }
+
+    body.inverted {
+        --pos-bg: #10301E;
+        --pos-fg: #6FE3A0;
+        --neg-bg: #341412;
+        --neg-fg: #F0897E;
+    }
+
+    .perf-pos {
+        background: var(--pos-bg);
+        color: var(--pos-fg);
+    }
+
+    .perf-neg {
+        background: var(--neg-bg);
+        color: var(--neg-fg);
+    }
+
+    .perf-extreme {
+        font-weight: 800;
+    }
+
+    .perf-badge {
+        font-size: 9.5px;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+        padding: 1px 5px;
+        border-radius: 4px;
+        margin-left: 5px;
+        font-family: var(--body);
+        vertical-align: 1px;
+    }
+
+    .perf-badge.best {
+        background: var(--pos-fg);
+        color: var(--pos-bg);
+    }
+
+    .perf-badge.worst {
+        background: var(--neg-fg);
+        color: var(--neg-bg);
+    }
+
+    .tile-pos {
+        background: var(--pos-bg) !important;
+    }
+
+    .tile-pos .value, .tile-pos .label {
+        color: var(--pos-fg) !important;
+    }
+
+    .tile-neg {
+        background: var(--neg-bg) !important;
+    }
+
+    .tile-neg .value, .tile-neg .label {
+        color: var(--neg-fg) !important;
+    }
+
     * {
         box-sizing: border-box;
     }
@@ -956,6 +1021,16 @@
             <section class="view active" id="view-dashboard">
                 <div id="dashboardBanner"></div>
                 <div class="hero" id="heroStats"></div>
+                <h2 class="section-title">Wertentwicklung</h2>
+                <div class="card" id="performanceCard">
+                    <div class="row" style="justify-content:space-between; margin-bottom:10px;">
+                        <span class="small muted">Veränderung des aktuellen Bestands über verschiedene Zeiträume (auf Basis historischer Kurse).</span>
+                        <button class="btn ghost small" id="loadPerfBtn">Wertentwicklung laden</button>
+                    </div>
+                    <div id="performanceContent">
+                        <div class="small muted">Noch nicht geladen.</div>
+                    </div>
+                </div>
                 <h2 class="section-title">Verteilung nach Wertpapier &amp; Anlageform</h2>
                 <div class="card" id="allocationCard"></div>
                 <h2 class="section-title">Top-Positionen</h2>
@@ -6537,6 +6612,7 @@
                 year: 'numeric'
             });
         };
+        const perfClass = v => v == null ? '' : (v >= 0 ? 'perf-pos' : 'perf-neg');
 
         function secByIsin(isin) {
             return state.securities.find(s => s.isin === isin);
@@ -6926,6 +7002,174 @@
             }
         }
 
+        /* ---------- Historical series (for Wertentwicklung chart, no API key) ---------- */
+        state.historicalSeries = state.historicalSeries || {};
+        async function fetchHistoricalSeries(symbol, days) {
+            const today = new Date();
+            const past = new Date();
+            past.setDate(past.getDate() - days);
+            const fmt = d => d.toISOString().slice(0, 10).replace(/-/g, '');
+            const url = `https://stooq.com/q/d/l/?s=${encodeURIComponent(symbol)}&d1=${fmt(past)}&d2=${fmt(today)}&i=d`;
+            const txt = await fetchViaProxies(url, false);
+            const rows = txt.trim().split('\n').slice(1).filter(Boolean);
+            const series = rows.map(r => {
+                const cols = r.split(',');
+                return {
+                    date: cols[0],
+                    close: parseFloat(cols[4])
+                };
+            }).filter(p => p.date && !isNaN(p.close)).sort((a, b) => a.date.localeCompare(b.date));
+            if (series.length === 0)
+                throw new Error('keine historischen Daten');
+            return series;
+        }
+        function nearestCloseOnOrBefore(series, dateISO) {
+            let best = null;
+            for (const pt of series) {
+                if (pt.date <= dateISO)
+                    best = pt;
+                else
+                    break;
+            }
+            return best ? best.close : (series.length ? series[0].close : null);
+        }
+        function portfolioValueAt(dateISO) {
+            const pos = computePositions(dateISO);
+            let val = 0,
+                missing = 0;
+            for (const p of Object.values(pos)) {
+                if (p.shares <= 1e-9)
+                    continue;
+                const series = state.historicalSeries[p.isin];
+                if (!series) {
+                    missing++;
+                    continue;
+                }
+                const close = nearestCloseOnOrBefore(series, dateISO);
+                if (close)
+                    val += p.shares * close;
+            }
+            return {
+                val,
+                missing
+            };
+        }
+        async function loadPerformanceHistory() {
+            const btn = document.getElementById('loadPerfBtn');
+            btn.disabled = true;
+            btn.textContent = 'Lade…';
+            const held = Object.values(computePositions()).filter(p => p.shares > 1e-9);
+            let ok = 0,
+                fail = 0;
+            for (const p of held) {
+                const sec = secByIsin(p.isin);
+                if (!sec?.symbol) {
+                    fail++;
+                    continue;
+                }
+                try {
+                    state.historicalSeries[p.isin] = await fetchHistoricalSeries(sec.symbol, 380);
+                    ok++;
+                }
+                catch (e) {
+                    fail++;
+                }
+            }
+            document.getElementById('performanceContent').dataset.loaded = '1';
+            renderPerformanceHistory(fail > 0 ? `${ok} Wertpapier(e) geladen, ${fail} ohne historische Daten (gehen in die Berechnung nicht ein).` : null);
+            btn.disabled = false;
+            btn.textContent = 'Wertentwicklung aktualisieren';
+        }
+        function sparklineSVG(points) {
+            const W = 640,
+                H = 120,
+                padL = 6,
+                padR = 6,
+                padT = 10,
+                padB = 10;
+            const vals = points.map(p => p.val);
+            const minY = Math.min(...vals),
+                maxY = Math.max(...vals);
+            const range = (maxY - minY) || 1;
+            const x = i => padL + (W - padL - padR) * (points.length === 1 ? 0 : i / (points.length - 1));
+            const y = v => H - padB - (H - padT - padB) * ((v - minY) / range);
+            let path = `M ${x(0)},${y(points[0].val)}`;
+            for (let i = 1; i < points.length; i++)
+                path += ` L ${x(i)},${y(points[i].val)}`;
+            const last = points[points.length - 1].val,
+                first = points[0].val;
+            const lineColor = last >= first ? 'var(--pos-fg)' : 'var(--neg-fg)';
+            const areaPath = path + ` L ${x(points.length - 1)},${H - padB} L ${x(0)},${H - padB} Z`;
+            return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">
+    <path d="${areaPath}" fill="${lineColor}" opacity="0.08"/>
+    <path d="${path}" fill="none" stroke="${lineColor}" stroke-width="2.2"/>
+    <text x="${padL}" y="${H - 1}" font-size="10" fill="var(--muted)" font-family="var(--mono)">${points[0].date}</text>
+    <text x="${W - padR}" y="${H - 1}" font-size="10" fill="var(--muted)" font-family="var(--mono)" text-anchor="end">${points[points.length - 1].date}</text>
+  </svg>`
+            ;
+        }
+        function renderPerformanceHistory(note) {
+            const content = document.getElementById('performanceContent');
+            if (content.dataset.loaded !== '1') {
+                content.innerHTML = '<div class="small muted">Noch nicht geladen. Klick auf "Wertentwicklung laden" (ruft historische Kurse für deine aktuellen Positionen ab).</div>';
+                return;
+            }
+            const today = new Date();
+            const isoDaysAgo = n => {
+                const d = new Date(today);
+                d.setDate(d.getDate() - n);
+                return d.toISOString().slice(0, 10);
+            };
+            const periods = [
+            {
+                label: 'Heute',
+                days: 1
+            }, {
+                label: '7 Tage',
+                days: 7
+            }, {
+                label: '30 Tage',
+                days: 30
+            },
+            {
+                label: '90 Tage',
+                days: 90
+            }, {
+                label: '365 Tage',
+                days: 365
+            },
+            ];
+            const valueNow = portfolioValueAt(isoDaysAgo(0)).val;
+            const tiles = periods.map(p => {
+                const past = portfolioValueAt(isoDaysAgo(p.days)).val;
+                const pct = past > 0 ? (valueNow - past) / past * 100 : null;
+                const cls = pct == null ? '' : (pct >= 0 ? 'tile-pos' : 'tile-neg');
+                return `<div class="stat ${cls}"><div class="label">${p.label}</div><div class="value">${pct != null ? fmtPct(pct) : 'n/v'}</div></div>`;
+            }).join('');
+
+            const chartPoints = [];
+            for (let d = 365; d >= 0; d -= 7) {
+                chartPoints.push({
+                    date: isoDaysAgo(d),
+                    val: portfolioValueAt(isoDaysAgo(d)).val
+                });
+            }
+            chartPoints.push({
+                date: isoDaysAgo(0),
+                val: valueNow
+            });
+
+            content.innerHTML = `
+    <div class="hero" style="margin-bottom:14px;">${tiles}</div>
+    <div class="chartbox">${sparklineSVG(chartPoints)}</div>
+    ${note ? `<div class="small muted" style="margin-top:8px;">${note}</div>` : ''}
+    <div class="small muted" style="margin-top:6px;">Vereinfachung: berücksichtigt nur aktuell gehaltene Positionen über deren Kursverlauf, keine zwischenzeitlich verkauften Positionen.</div>
+  `
+
+            ;
+        }
+        document.getElementById('loadPerfBtn').addEventListener('click', loadPerformanceHistory);
+
         /* ---------- Symbol auto-finder (Yahoo search, no key) ---------- */
         async function searchSymbol(name) {
             const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(name)}&quotesCount=6&newsCount=0`;
@@ -7073,6 +7317,8 @@
             renderPricesPage();
             renderSettingsExtras();
             populateSelects();
+            if (document.getElementById('performanceContent').dataset.loaded === '1')
+                renderPerformanceHistory();
         }
         function totalsFromPositions(pos) {
             let depotwert = 0,
@@ -7210,6 +7456,7 @@
             document.getElementById('dashboardBanner').innerHTML = missingPrices ? `<div class="banner">Für einige Positionen fehlen Kurswerte. Trage sie auf der Seite <strong>Kurswerte</strong> ein.</div>` : '';
 
             const portfolioXirr = xirr(portfolioCashflows());
+            const tileCls = v => v == null ? '' : (v >= 0 ? 'tile-pos' : 'tile-neg');
             const stats = [
             {
                 label: 'Depotwert',
@@ -7221,11 +7468,13 @@
             },
             {
                 label: 'Buchgewinn/-verlust',
-                value: fmtEUR(t.unrealized)
+                value: fmtEUR(t.unrealized),
+                cls: tileCls(t.unrealized)
             },
             {
                 label: 'Realisiert (Verkäufe)',
-                value: fmtEUR(t.realized)
+                value: fmtEUR(t.realized),
+                cls: tileCls(t.realized)
             },
             {
                 label: 'Dividenden gesamt',
@@ -7237,19 +7486,22 @@
             },
             {
                 label: 'Gesamtergebnis',
-                value: fmtEUR(t.result)
+                value: fmtEUR(t.result),
+                cls: tileCls(t.result)
             },
             {
                 label: 'Rendite (vereinfacht)*',
-                value: fmtPct(t.returnPct)
+                value: fmtPct(t.returnPct),
+                cls: tileCls(t.returnPct)
             },
             {
                 label: 'Rendite p.a. (IZF/XIRR)',
-                value: portfolioXirr != null ? fmtPct(portfolioXirr * 100) : 'n/v'
+                value: portfolioXirr != null ? fmtPct(portfolioXirr * 100) : 'n/v',
+                cls: tileCls(portfolioXirr)
             },
             ];
             document.getElementById('heroStats').innerHTML = stats.map(s =>
-            `<div class="stat"><div class="label">${s.label}</div><div class="value">${s.value}</div></div>`
+            `<div class="stat ${s.cls || ''}"><div class="label">${s.label}</div><div class="value">${s.value}</div></div>`
             ).join('') + `<div class="stat" style="grid-column:1/-1; background:transparent; padding-top:4px;"><div class="delta">*vereinfacht = Gesamtergebnis ÷ gesamtes investiertes Kapital. IZF/XIRR = zeitgewichtete Jahresrendite unter Berücksichtigung aller Ein-/Auszahlungstermine. „Buchgewinn/-verlust" = Wertänderung der aktuell gehaltenen Position, noch nicht durch Verkauf realisiert.</div></div>`;
 
             renderAllocation(pos);
@@ -7279,7 +7531,7 @@
       <td data-label="Einkaufskurs">${r.avgCost ? fmtEUR(r.avgCost) : '—'}</td>
       <td data-label="Marktkurs">${r.price ? fmtEUR(r.price) : 'n/v'}</td>
       <td data-label="Wert">${r.val !== null ? fmtEUR(r.val) : 'n/v'}</td>
-      <td data-label="Ergebnis">${r.upl !== null ? fmtEUR(r.upl) : '—'}</td>
+      <td data-label="Ergebnis" class="${perfClass(r.upl)}">${r.upl !== null ? fmtEUR(r.upl) : '—'}</td>
     </tr>`).join('') || `<tr><td colspan="6" class="empty">Noch keine Positionen. Importiere deine Bestandsdaten unter Einstellungen.</td></tr>`}
   `
             ;
@@ -7374,6 +7626,18 @@
                 rows = rows.filter(r => (r.sec?.name || '').toLowerCase().includes(search) || r.p.isin.toLowerCase().includes(search));
             rows = sortRows(rows);
 
+            const withPct = rows.filter(r => r.uplPct != null);
+            let bestIsin = null,
+                worstIsin = null;
+            if (withPct.length > 1) {
+                bestIsin = withPct.reduce((a, b) => b.uplPct > a.uplPct ? b : a).p.isin;
+                worstIsin = withPct.reduce((a, b) => b.uplPct < a.uplPct ? b : a).p.isin;
+                if (bestIsin === worstIsin) {
+                    bestIsin = null;
+                    worstIsin = null;
+                }
+            }
+
             const sumInvested = rows.reduce((s, r) => s + (r.invested || 0), 0);
             const sumVal = rows.reduce((s, r) => s + (r.val || 0), 0);
 
@@ -7385,18 +7649,18 @@
 
             document.getElementById('positionsTable').innerHTML = `
     <tr>${headerHtml}</tr>
-    ${rows.map(r => `<tr>
-      <td class="name"><span class="namelink" data-isin="${r.p.isin}">${r.sec?.name || r.p.isin}</span><span class="isin">${r.p.isin}${r.sec?.symbol ? (' · ' + r.sec.symbol) : ''}</span></td>
+    ${rows.map(r => {const isBest = r.p.isin === bestIsin,isWorst = r.p.isin === worstIsin;const extreme = isBest || isWorst ? 'perf-extreme' : '';const badge = isBest ? '<span class="perf-badge best">Bester</span>' : (isWorst ? '<span class="perf-badge worst">Schwächster</span>' : '');return `<tr>
+      <td class="name"><span class="namelink" data-isin="${r.p.isin}">${r.sec?.name || r.p.isin}</span>${badge}<span class="isin">${r.p.isin}${r.sec?.symbol ? (' · ' + r.sec.symbol) : ''}</span></td>
       <td data-label="Bestand">${fmtNum(r.shares)}</td>
       <td data-label="Ø Kosten">${r.avgCost ? fmtEUR(r.avgCost) : '—'}</td>
       <td data-label="Investiert">${fmtEUR(r.invested)}</td>
       <td data-label="Break-Even">${r.breakEven != null ? fmtEUR(r.breakEven) : '—'}</td>
       <td data-label="Kurs">${r.price ? fmtEUR(r.price) + `<span class="pricebadge ${r.priceInfo.source === 'manuell' ? 'manual' : ''}">${r.priceInfo.source}</span>` : '<span class="pricebadge">n/v</span>'}</td>
       <td data-label="Wert">${r.val !== null ? fmtEUR(r.val) : '—'}</td>
-      <td data-label="Buchgew./-verl.">${r.upl !== null ? fmtEUR(r.upl) : '—'}</td>
-      <td data-label="Buchgew./-verl. %">${r.uplPct !== null ? fmtPct(r.uplPct) : '—'}</td>
+      <td data-label="Buchgew./-verl." class="${perfClass(r.upl)} ${extreme}">${r.upl !== null ? fmtEUR(r.upl) : '—'}</td>
+      <td data-label="Buchgew./-verl. %" class="${perfClass(r.uplPct)} ${extreme}">${r.uplPct !== null ? fmtPct(r.uplPct) : '—'}</td>
       <td data-label="Dividenden">${fmtEUR(r.dividends)}</td>
-    </tr>`).join('') || `<tr><td colspan="${POSITIONS_COLUMNS.length}" class="empty">Keine Positionen vorhanden.</td></tr>`}
+    </tr>`;}).join('') || `<tr><td colspan="${POSITIONS_COLUMNS.length}" class="empty">Keine Positionen vorhanden.</td></tr>`}
     ${rows.length ? `<tr class="totals">
       <td data-label="">Summe (angezeigt)</td><td data-label=""></td><td data-label=""></td>
       <td data-label="Investiert">${
@@ -7487,6 +7751,7 @@
                 };
             });
 
+            const tileCls = v => v == null ? '' : (v >= 0 ? 'tile-pos' : 'tile-neg');
             const stats = [
             {
                 label: 'Bestand',
@@ -7514,19 +7779,23 @@
             },
             {
                 label: 'Buchgewinn/-verlust',
-                value: upl !== null ? fmtEUR(upl) : '—'
+                value: upl !== null ? fmtEUR(upl) : '—',
+                cls: tileCls(upl)
             },
             {
                 label: 'Buchgewinn/-verlust %',
-                value: uplPct !== null ? fmtPct(uplPct) : '—'
+                value: uplPct !== null ? fmtPct(uplPct) : '—',
+                cls: tileCls(uplPct)
             },
             {
                 label: 'Rendite p.a. (IZF/XIRR)',
-                value: secXirr != null ? fmtPct(secXirr * 100) : 'n/v'
+                value: secXirr != null ? fmtPct(secXirr * 100) : 'n/v',
+                cls: tileCls(secXirr)
             },
             {
                 label: 'Realisiert (Verkäufe)',
-                value: fmtEUR(pos.realizedPL)
+                value: fmtEUR(pos.realizedPL),
+                cls: tileCls(pos.realizedPL)
             },
             {
                 label: 'Dividenden gesamt',
@@ -7538,7 +7807,7 @@
     <h2 class="section-title">${
             sec?.name || isin}</h2>
     <div class="small muted" style="margin-bottom:14px;">${isin}${sec?.wkn ? (' · WKN ' + sec.wkn) : ''}${sec?.symbol ? (' · Kürzel ' + sec.symbol) : ''} · ${sec?.art || ''}</div>
-    <div class="hero">${stats.map(s => `<div class="stat"><div class="label">${s.label}</div><div class="value" style="font-size:19px;">${s.value}</div></div>`).join('')}</div>
+    <div class="hero">${stats.map(s => `<div class="stat ${s.cls || ''}"><div class="label">${s.label}</div><div class="value" style="font-size:19px;">${s.value}</div></div>`).join('')}</div>
     <h2 class="section-title">Bestand im Zeitverlauf</h2>
     <div class="card chartbox">${
             sharesChartSVG(chartPoints)}</div>
