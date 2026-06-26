@@ -1037,6 +1037,10 @@
                 <div class="card tablewrap">
                     <table class="ledger cardify" id="topPositionsTable"></table>
                 </div>
+                <h2 class="section-title">Flop-Positionen</h2>
+                <div class="card tablewrap">
+                    <table class="ledger cardify" id="flopPositionsTable"></table>
+                </div>
                 <h2 class="section-title">Letzte Aktivitäten</h2>
                 <div class="card" id="recentActivities"></div>
             </section>
@@ -6617,6 +6621,9 @@
         function secByIsin(isin) {
             return state.securities.find(s => s.isin === isin);
         }
+        function allActivities() {
+            return [...state.activities, ...state.costs];
+        }
 
         /* ---------- Auth gate ---------- */
         auth.onAuthStateChanged(user => {
@@ -6674,7 +6681,8 @@
                 }));
                 state.costs = costSnap.docs.map(d => ({
                     id: d.id,
-                    ...d.data()
+                    ...d.data(),
+                    type: 'cost'
                 }));
                 state.prices = {};
                 for (const s of state.securities) {
@@ -7354,11 +7362,11 @@
 
         /* ---------- Allocation pie chart (colored, grouped by Anlageform) ---------- */
         const ART_COLORS = {
-            Aktie: '#2F6F52',
-            ETF: '#3B6FA8',
-            Fond: '#B08D3F',
-            Krypto: '#7A4FBF',
-            Sonstige: '#888888'
+            Aktie: '#1F7A4D',
+            ETF: '#1C5FAE',
+            Fond: '#D98C2B',
+            Krypto: '#8B3FBF',
+            Sonstige: '#555555'
         };
         function colorFor(art) {
             return ART_COLORS[art] || ART_COLORS.Sonstige;
@@ -7506,39 +7514,47 @@
 
             renderAllocation(pos);
 
-            const rows = Object.values(pos).filter(p => p.shares > 1e-9).map(p => {
+            const allRows = Object.values(pos).filter(p => p.shares > 1e-9).map(p => {
                 const sec = secByIsin(p.isin);
                 const price = state.prices[p.isin]?.price;
                 const avgCost = p.shares > 1e-9 ? p.invested / p.shares : 0;
                 const val = price ? p.shares * price : null;
                 const upl = val !== null ? val - p.invested : null;
+                const uplPct = (val !== null && p.invested > 0) ? (upl / p.invested * 100) : null;
                 return {
                     ...p,
                     sec,
                     price,
                     avgCost,
                     val,
-                    upl
+                    upl,
+                    uplPct
                 };
-            }).sort((a, b) => (b.val || 0) - (a.val || 0)).slice(0, 5);
-
-            document.getElementById('topPositionsTable').innerHTML = `
-    <tr><th style="text-align:left">Wertpapier</th><th>Bestand</th><th>Einkaufskurs</th><th>Marktkurs</th><th>Wert</th><th>Erg.</th></tr>
-    ${
-            rows.map(r => `<tr>
-      <td class="name"><span class="namelink" data-isin="${r.isin}">${r.sec?.name || r.isin}</span><span class="isin">${r.isin}</span></td>
-      <td data-label="Bestand">${fmtNum(r.shares)}</td>
-      <td data-label="Einkaufskurs">${r.avgCost ? fmtEUR(r.avgCost) : '—'}</td>
-      <td data-label="Marktkurs">${r.price ? fmtEUR(r.price) : 'n/v'}</td>
-      <td data-label="Wert">${r.val !== null ? fmtEUR(r.val) : 'n/v'}</td>
-      <td data-label="Ergebnis" class="${perfClass(r.upl)}">${r.upl !== null ? fmtEUR(r.upl) : '—'}</td>
-    </tr>`).join('') || `<tr><td colspan="6" class="empty">Noch keine Positionen. Importiere deine Bestandsdaten unter Einstellungen.</td></tr>`}
-  `
-            ;
-            document.querySelectorAll('#topPositionsTable .namelink').forEach(el => el.addEventListener('click', () => openDetail(el.dataset.isin)));
+            });
+            const renderPosTable = (elId, rows, emptyMsg) => {
+                document.getElementById(elId).innerHTML = `
+      <tr><th style="text-align:left">Wertpapier</th><th>Bestand</th><th>Einkaufskurs</th><th>Marktkurs</th><th>Wert</th><th>Erg.</th><th>Erg. %</th></tr>
+      ${
+                rows.map(r => `<tr>
+        <td class="name"><span class="namelink" data-isin="${r.isin}">${r.sec?.name || r.isin}</span><span class="isin">${r.isin}</span></td>
+        <td data-label="Bestand">${fmtNum(r.shares)}</td>
+        <td data-label="Einkaufskurs">${r.avgCost ? fmtEUR(r.avgCost) : '—'}</td>
+        <td data-label="Marktkurs">${r.price ? fmtEUR(r.price) : 'n/v'}</td>
+        <td data-label="Wert">${r.val !== null ? fmtEUR(r.val) : 'n/v'}</td>
+        <td data-label="Ergebnis" class="${perfClass(r.upl)}">${r.upl !== null ? fmtEUR(r.upl) : '—'}</td>
+        <td data-label="Ergebnis %" class="${perfClass(r.uplPct)}">${r.uplPct !== null ? fmtPct(r.uplPct) : '—'}</td>
+      </tr>`).join('') || `<tr><td colspan="7" class="empty">${emptyMsg}</td></tr>`}
+    `
+                ;
+                document.querySelectorAll('#' + elId + ' .namelink').forEach(el => el.addEventListener('click', () => openDetail(el.dataset.isin)));
+            };
+            const topRows = allRows.slice().sort((a, b) => (b.val || 0) - (a.val || 0)).slice(0, 5);
+            const flopRows = allRows.filter(r => r.uplPct != null).sort((a, b) => a.uplPct - b.uplPct).slice(0, 5);
+            renderPosTable('topPositionsTable', topRows, 'Noch keine Positionen. Importiere deine Bestandsdaten unter Einstellungen.');
+            renderPosTable('flopPositionsTable', flopRows, 'Keine Positionen mit negativer Performance.');
 
             const ledger = computeLedger();
-            const recent = state.activities.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
+            const recent = allActivities().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
             document.getElementById('recentActivities').innerHTML = recent.length ? recent.map(a => renderActivityRow(a, ledger.detailsByActId[a.id])).join('') :
             `<div class="empty"><div class="big">Noch keine Aktivitäten</div>Importiere deine Bestandsdaten oder erfasse die erste Buchung.</div>`;
             wireActivityRows('#recentActivities');
@@ -7739,7 +7755,7 @@
             const secXirr = xirr(securityCashflows(isin));
 
             const ledger = computeLedger();
-            const acts = state.activities.filter(a => a.isin === isin).slice().sort((a, b) => a.date.localeCompare(b.date));
+            const acts = allActivities().filter(a => a.isin === isin).sort((a, b) => a.date.localeCompare(b.date));
             let cum = 0;
             const chartPoints = acts.filter(a => a.type === 'buy' || a.type === 'sell').map(a => {
                 cum += a.type === 'buy' ? a.shares : -a.shares;
@@ -7860,7 +7876,7 @@
             const typeFilter = document.getElementById('activityFilter').value;
             const secFilter = document.getElementById('activitySecurityFilter').value;
             const search = (document.getElementById('activitiesSearch').value || '').trim().toLowerCase();
-            let acts = state.activities.slice();
+            let acts = allActivities();
             if (typeFilter !== 'all')
                 acts = acts.filter(a => a.type === typeFilter);
             if (secFilter !== 'all')
