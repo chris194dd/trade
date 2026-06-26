@@ -6631,10 +6631,10 @@
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
         }) + ' €';
-        const fmtPct = n => (n > 0 ? '+' : '') + n.toLocaleString('de-DE', {
+        const fmtPct = n => '<strong>' + (n > 0 ? '+' : '') + n.toLocaleString('de-DE', {
             minimumFractionDigits: 1,
             maximumFractionDigits: 1
-        }) + ' %';
+        }) + ' %</strong>';
         const fmtNum = n => n.toLocaleString('de-DE', {
             minimumFractionDigits: 0,
             maximumFractionDigits: 4
