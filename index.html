@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>Depot_C</title>
+    <title>Depot</title>
     <link rel="manifest" href="data:application/json,{%22name%22:%22Depot%22,%22display%22:%22standalone%22,%22start_url%22:%22.%22,%22background_color%22:%22%23FFFFFF%22,%22theme_color%22:%22%23000000%22}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1284,8 +1284,8 @@
                         <input type="number" step="any" id="formPrice">
                     </div>
                     <div id="formAmountWrap">
-                        <label>Betrag (€)</label>
-                        <input type="number" step="any" id="formAmount">
+                        <label>Handelswert (€) – wird autom. berechnet</label>
+                        <input type="number" step="any" id="formAmount" placeholder="Stk × Kurs">
                     </div>
                     <div id="formFeeWrap">
                         <label>Gebühr (€)</label>
@@ -7853,7 +7853,7 @@
                 const price = priceInfo?.price;
                 const val = (p.shares > 1e-9 && price) ? p.shares * price : null;
                 const avgCost = p.shares > 1e-9 ? p.invested / p.shares : null;
-                const breakEven = p.shares > 1e-9 ? (p.invested - p.dividends) / p.shares : null;
+                const breakEven = p.shares > 1e-9 ? (p.invested - p.dividends - p.realizedPL) / p.shares : null;
                 const upl = val !== null ? val - p.invested : null;
                 const uplPct = (val !== null && p.invested > 0) ? (upl / p.invested * 100) : null;
                 return {
@@ -8071,7 +8071,7 @@
             const price = priceInfo?.price;
             const val = (pos.shares > 1e-9 && price) ? pos.shares * price : null;
             const avgCost = pos.shares > 1e-9 ? pos.invested / pos.shares : 0;
-            const breakEven = pos.shares > 1e-9 ? (pos.invested - pos.dividends) / pos.shares : null;
+            const breakEven = pos.shares > 1e-9 ? (pos.invested - pos.dividends - pos.realizedPL) / pos.shares : null;
             const upl = val !== null ? val - pos.invested : null;
             const uplPct = (val !== null && pos.invested > 0) ? (upl / pos.invested * 100) : null;
             const secXirr = xirr(securityCashflows(isin));
@@ -8612,6 +8612,20 @@
         });
         document.getElementById('formType').addEventListener('change', applyFormType);
         document.getElementById('formSave').addEventListener('click', saveActivity);
+
+        // Auto-calculate amount from shares × price
+        function autoCalcAmount() {
+            const type = document.getElementById('formType').value;
+            if (type !== 'buy' && type !== 'sell')
+                return;
+            const shares = parseFloat(document.getElementById('formShares').value);
+            const price = parseFloat(document.getElementById('formPrice').value);
+            if (shares > 0 && price > 0) {
+                document.getElementById('formAmount').value = (shares * price).toFixed(2);
+            }
+        }
+        document.getElementById('formShares').addEventListener('input', autoCalcAmount);
+        document.getElementById('formPrice').addEventListener('input', autoCalcAmount);
         document.getElementById('importBtn').addEventListener('click', importSeed);
         document.getElementById('addSecBtn').addEventListener('click', saveNewSecurity);
         document.getElementById('activityFilter').addEventListener('change', renderActivities);
