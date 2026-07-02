@@ -1060,6 +1060,8 @@
             <section class="view active" id="view-dashboard">
                 <div id="dashboardBanner"></div>
                 <div class="hero" id="heroStats"></div>
+                <h2 class="section-title">Investitionsverlauf</h2>
+                <div class="card" id="investitionCard"></div>
                 <h2 class="section-title">Wertentwicklung</h2>
                 <div class="card" id="performanceCard">
                     <div class="row" style="justify-content:space-between; margin-bottom:10px;">
@@ -7484,7 +7486,147 @@
         });
         document.getElementById('secEditSave').addEventListener('click', saveSecurityEdit);
 
-        /* ---------- Rendering ---------- */
+        /* ---------- Investitionsverlauf (transaction-based, no external data needed) ---------- */
+        function buildInvestitionTimeline() {
+            // Gather all buy/sell events sorted by date
+            const events = [];
+            for (const a of state.activities) {
+                if (a.type === 'buy')
+                    events.push({
+                        date: a.date,
+                        delta: a.amount + (a.fee || 0)
+                    });
+                else if (a.type === 'sell') {
+                    // Reduce invested by the cost basis of sold shares (avg cost method)
+                    // We approximate by computing avg cost up to this point
+                    const pos = computePositions(a.date);
+                    const p = pos[a.isin];
+                    const avgCost = p && p.shares > 0 ? p.invested / p.shares : 0;
+                    events.push({
+                        date: a.date,
+                        delta: -(avgCost * Math.min(a.shares, p?.shares || 0))
+                    });
+                }
+            }
+            events.sort((a, b) => a.date.localeCompare(b.date));
+
+            // Build cumulative timeline – one point per day with a transaction
+            const seen = {};
+            const points = [];
+            let cumulative = 0;
+            for (const e of events) {
+                cumulative += e.delta;
+                seen[e.date] = (seen[e.date] || 0) + e.delta;
+            }
+
+            // Rebuild cleanly: one data point per unique date
+            cumulative = 0;
+            const byDate = {};
+            for (const e of events)
+                byDate[e.date] = (byDate[e.date] || 0) + e.delta;
+            for (const date of Object.keys(byDate).sort()) {
+                cumulative += byDate[date];
+                points.push({
+                    date,
+                    val: Math.max(cumulative, 0)
+                });
+            }
+            return points;
+        }
+
+        function investitionSVG(points) {
+            if (!points.length)
+                return '<div class="empty small muted">Noch keine Transaktionen.</div>';
+            const W = 680,
+                H = 160,
+                padL = 58,
+                padR = 12,
+                padT = 12,
+                padB = 30;
+            const vals = points.map(p => p.val);
+            const minY = 0,
+                maxY = Math.max(...vals, 1);
+            const x = i => padL + (W - padL - padR) * (points.length === 1 ? 0.5 : i / (points.length - 1));
+            const y = v => H - padB - (H - padT - padB) * (v / maxY);
+            const fmtK = v => v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v.toFixed(0);
+
+            // Step-line path (invested changes discretely at each transaction)
+            let path = `M ${x(0)},${y(points[0].val)}`;
+            for (let i = 1; i < points.length; i++)
+                path += ` H ${x(i)} V ${y(points[i].val)}`;
+            const areaPath = path + ` H ${x(points.length - 1)} V ${H - padB} H ${x(0)} Z`;
+
+            // Y-axis grid lines
+            const yTicks = 4;
+            let grid = '',
+                yLabels = '';
+            for (let i = 0; i <= yTicks; i++) {
+                const v = maxY * i / yTicks;
+                const yPos = y(v);
+                grid += `<line x1="${padL}" y1="${yPos}" x2="${W - padR}" y2="${yPos}" stroke="var(--border)" stroke-width="1"/>`;
+                yLabels += `<text x="${padL - 6}" y="${yPos + 4}" font-size="10" fill="var(--muted)" font-family="var(--mono)" text-anchor="end">${fmtK(v)} €</text>`;
+            }
+
+            // X-axis labels (show first, middle, last)
+            const xLabels = [0, Math.floor((points.length - 1) / 2), points.length - 1].filter((v, i, a) => a.indexOf(v) === i).map(i =>
+            `<text x="${x(i)}" y="${H - 4}" font-size="10" fill="var(--muted)" font-family="var(--mono)" text-anchor="middle">${points[i].date}</text>`
+            ).join('');
+
+            // Peak annotation
+            const peakIdx = vals.indexOf(Math.max(...vals));
+            const peakPt = points[peakIdx];
+            const peakAnn = `<circle cx="${x(peakIdx)}" cy="${y(peakPt.val)}" r="4" fill="var(--fg)"/>
+    <text x="${x(peakIdx)}" y="${y(peakPt.val) - 8}" font-size="10" fill="var(--fg)" font-family="var(--mono)" text-anchor="middle">▲ ${fmtEUR(peakPt.val)}</text>`;
+
+            // Current annotation (last point)
+            const lastPt = points[points.length - 1];
+            const lastAnn = `<circle cx="${x(points.length - 1)}" cy="${y(lastPt.val)}" r="4" fill="var(--fg)"/>`;
+
+            return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">
+    ${grid}${yLabels}
+    <path d="${areaPath}" fill="var(--fg)" opacity="0.06"/>
+    <path d="${path}" fill="none" stroke="var(--fg)" stroke-width="2.2"/>
+    ${peakIdx !== points.length - 1 ? peakAnn : ''}
+    ${lastAnn}
+    ${xLabels}
+  </svg>`
+            ;
+        }
+
+        function renderInvestitionsverlauf() {
+            const card = document.getElementById('investitionCard');
+            if (!card)
+                return;
+            const points = buildInvestitionTimeline();
+            if (!points.length) {
+                card.innerHTML = '<div class="empty small muted">Noch keine Transaktionen vorhanden.</div>';
+                return;
+            }
+
+            const current = points[points.length - 1].val;
+            const peak = Math.max(...points.map(p => p.val));
+            const first = points[0];
+            const totalBought = state.activities.filter(a => a.type === 'buy').reduce((s, a) => s + (a.amount + (a.fee || 0)), 0);
+            const totalSellProceeds = state.activities.filter(a => a.type === 'sell').reduce((s, a) => s + (a.amount - (a.fee || 0)), 0);
+
+            card.innerHTML = `
+    <div class="hero" style="margin-bottom:14px;">
+      <div class="stat"><div class="label">Aktuell investiert</div><div class="value">${
+            fmtEUR(current)}</div></div>
+      <div class="stat"><div class="label">Höchster Investitionsstand</div><div class="value">${fmtEUR(peak)}</div></div>
+      <div class="stat"><div class="label">Gesamtes eingesetztes Kapital</div><div class="value">${fmtEUR(totalBought)}</div></div>
+      <div class="stat"><div class="label">Gesamte Verkaufserlöse</div><div class="value">${fmtEUR(totalSellProceeds)}</div></div>
+      <div class="stat"><div class="label">Erste Investition</div><div class="value" style="font-size:16px;">${fmtDate(first.date)}</div></div>
+    </div>
+    <div class="chartbox">${
+            investitionSVG(points)}</div>
+    <div class="small muted" style="margin-top:8px;">Zeigt das aktuell gebundene Kapital (investiert − freigegebene Kostenbasis verkaufter Positionen) auf Basis deiner Transaktionsdaten. Unabhängig von Marktpreisen.</div>
+  `
+
+            ;
+        }
+
+
         function renderAll() {
             renderDashboard();
             renderPositions();
@@ -7492,6 +7634,7 @@
             renderPricesPage();
             renderSettingsExtras();
             populateSelects();
+            renderInvestitionsverlauf();
             if (document.getElementById('performanceContent').dataset.loaded === '1')
                 renderPerformanceHistory();
         }
@@ -7740,14 +7883,8 @@
         }, {
             key: 'shares',
             label: 'Bestand'
-        }, {
-            key: 'avgCost',
-            label: 'Ø Kosten'
         },
         {
-            key: 'invested',
-            label: 'Investiert'
-        }, {
             key: 'breakEven',
             label: 'Break-Even'
         }, {
@@ -7758,14 +7895,8 @@
             key: 'val',
             label: 'Wert'
         }, {
-            key: 'upl',
-            label: 'Buchgew./-verl.'
-        }, {
             key: 'uplPct',
             label: 'Buchgew./-verl. %'
-        }, {
-            key: 'dividends',
-            label: 'Div.'
         },
         ];
         const CLOSED_COLUMNS = [
@@ -7773,21 +7904,8 @@
             key: 'name',
             label: 'Wertpapier'
         }, {
-            key: 'totalBought',
-            label: 'Gekauft (Stk)'
-        }, {
-            key: 'totalSold',
-            label: 'Verkauft (Stk)'
-        },
-        {
             key: 'invested',
-            label: 'Investiert (gesamt)'
-        }, {
-            key: 'realizedPL',
-            label: 'Realisiert'
-        }, {
-            key: 'dividends',
-            label: 'Dividenden'
+            label: 'Investiert'
         },
         {
             key: 'result',
@@ -7904,23 +8022,20 @@
 
             document.getElementById('positionsTable').innerHTML = `
     <tr>${headerHtml}</tr>
-    ${rows.map(r => {const isBest = r.p.isin === bestIsin,isWorst = r.p.isin === worstIsin;const extreme = isBest || isWorst ? 'perf-extreme' : '';const badge = isBest ? '<span class="perf-badge best">Bester</span>' : (isWorst ? '<span class="perf-badge worst">Schwächster</span>' : '');return `<tr>
+    ${rows.map(r => {const isBest = r.p.isin === bestIsin,isWorst = r.p.isin === worstIsin;const extreme = isBest || isWorst ? 'perf-extreme' : '';const badge = isBest ? '<span class="perf-badge best">Bester</span>' : (isWorst ? '<span class="perf-badge worst">Schwächster</span>' : '');const beCls = r.breakEven != null && r.price ? (r.breakEven < r.price ? 'perf-pos' : 'perf-neg') : '';return `<tr>
       <td class="name"><span class="namelink" data-isin="${r.p.isin}">${r.sec?.name || r.p.isin}</span>${badge}<button class="findbtn" data-edit-isin="${r.p.isin}" title="Wertpapier bearbeiten">✎</button><span class="isin">${r.p.isin}${r.sec?.symbol ? (' · ' + r.sec.symbol) : ''}</span></td>
       <td data-label="Bestand">${fmtNum(r.shares)}</td>
-      <td data-label="Ø Kosten">${r.avgCost ? fmtEUR(r.avgCost) : '—'}</td>
-      <td data-label="Investiert">${fmtEUR(r.invested)}</td>
-      <td data-label="Break-Even">${r.breakEven != null ? fmtEUR(r.breakEven) : '—'}</td>
-      <td data-label="Kurs">${r.price ? fmtEUR(r.price) + `<span class="pricebadge ${r.priceInfo.source === 'manuell' ? 'manual' : ''}">${r.priceInfo.source}</span>` : '<span class="pricebadge">n/v</span>'}</td>
+      <td data-label="Break-Even" class="${beCls}">${r.breakEven != null ? fmtEUR(r.breakEven) : '—'}</td>
+      <td data-label="Kurs">${r.price ? fmtEUR(r.price) + `<span class="pricebadge ${r.priceInfo?.source === 'manuell' ? 'manual' : ''}">${r.priceInfo?.source || ''}</span>` : '<span class="pricebadge">n/v</span>'}</td>
       <td data-label="Wert">${r.val !== null ? fmtEUR(r.val) : '—'}</td>
-      <td data-label="Buchgew./-verl." class="${perfClass(r.upl)} ${extreme}">${r.upl !== null ? fmtEUR(r.upl) : '—'}</td>
       <td data-label="Buchgew./-verl. %" class="${perfClass(r.uplPct)} ${extreme}">${r.uplPct !== null ? fmtPct(r.uplPct) : '—'}</td>
-      <td data-label="Dividenden">${fmtEUR(r.dividends)}</td>
     </tr>`;}).join('') || `<tr><td colspan="${POSITIONS_COLUMNS.length}" class="empty">Keine Positionen vorhanden.</td></tr>`}
     ${rows.length ? `<tr class="totals">
-      <td data-label="">Summe (angezeigt)</td><td data-label=""></td><td data-label=""></td>
-      <td data-label="Investiert">${
-            fmtEUR(sumInvested)}</td><td data-label=""></td><td data-label=""></td>
-      <td data-label="Wert">${fmtEUR(sumVal)}</td><td data-label=""></td><td data-label=""></td><td data-label=""></td>
+      <td data-label="">Summe</td><td></td>
+      <td></td><td></td>
+      <td data-label="Wert">${
+
+            fmtEUR(sumVal)}</td><td></td>
     </tr>` : ''}
   `
             ;
@@ -7994,11 +8109,7 @@
     <tr>${headerHtml}</tr>
     ${rows.map(r => `<tr>
       <td class="name"><span class="namelink" data-isin="${r.isin}">${r.sec?.name || r.isin}</span><span class="isin">${r.isin}</span></td>
-      <td data-label="Gekauft (Stk)">${fmtNum(r.totalBought)}</td>
-      <td data-label="Verkauft (Stk)">${fmtNum(r.totalSold)}</td>
-      <td data-label="Investiert (gesamt)">${fmtEUR(r.invested)}</td>
-      <td data-label="Realisiert" class="${perfClass(r.realizedPL)}">${fmtEUR(r.realizedPL)}</td>
-      <td data-label="Dividenden">${fmtEUR(r.dividends)}</td>
+      <td data-label="Investiert">${fmtEUR(r.invested)}</td>
       <td data-label="Gesamtergebnis" class="${perfClass(r.result)}">${fmtEUR(r.result)}</td>
       <td data-label="Rendite %" class="${perfClass(r.returnPct)}">${r.returnPct != null ? fmtPct(r.returnPct) : '—'}</td>
       <td data-label="Zeitraum">${r.period}</td>
@@ -8126,7 +8237,8 @@
             },
             {
                 label: 'Break-Even',
-                value: breakEven != null ? fmtEUR(breakEven) : '—'
+                value: breakEven != null ? fmtEUR(breakEven) : '—',
+                cls: breakEven != null && price ? (breakEven < price ? 'tile-pos' : 'tile-neg') : ''
             },
             {
                 label: 'Aktueller Kurs',
