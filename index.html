@@ -8064,7 +8064,8 @@
                 shares: 0,
                 invested: 0,
                 realizedPL: 0,
-                dividends: 0
+                dividends: 0,
+                totalBuyVolume: 0
             };
             const priceInfo = state.prices[isin];
             const price = priceInfo?.price;
@@ -8088,8 +8089,26 @@
                 };
             });
 
+            const totalResult = (upl || 0) + pos.realizedPL + pos.dividends;
+            const totalResultPct = pos.totalBuyVolume > 0 ? totalResult / pos.totalBuyVolume * 100 : null;
             const tileCls = v => v == null ? '' : (v >= 0 ? 'tile-pos' : 'tile-neg');
             const stats = [
+            {
+                label: 'Gesamtergebnis',
+                value: fmtEUR(totalResult),
+                cls: tileCls(totalResult),
+                wide: true
+            },
+            {
+                label: 'Gesamtrendite (vereinfacht)',
+                value: totalResultPct != null ? fmtPct(totalResultPct) : '—',
+                cls: tileCls(totalResultPct)
+            },
+            {
+                label: 'Rendite p.a. (IZF/XIRR)',
+                value: secXirr != null ? fmtPct(secXirr * 100) : 'n/v',
+                cls: tileCls(secXirr)
+            },
             {
                 label: 'Bestand',
                 value: fmtNum(pos.shares)
@@ -8111,7 +8130,7 @@
                 value: val !== null ? fmtEUR(val) : '—'
             },
             {
-                label: 'Investiert',
+                label: 'Investiert (aktuell)',
                 value: fmtEUR(pos.invested)
             },
             {
@@ -8123,11 +8142,6 @@
                 label: 'Buchgewinn/-verlust %',
                 value: uplPct !== null ? fmtPct(uplPct) : '—',
                 cls: tileCls(uplPct)
-            },
-            {
-                label: 'Rendite p.a. (IZF/XIRR)',
-                value: secXirr != null ? fmtPct(secXirr * 100) : 'n/v',
-                cls: tileCls(secXirr)
             },
             {
                 label: 'Realisiert (Verkäufe)',
@@ -8150,7 +8164,7 @@
     <div class="small muted" style="margin-bottom:14px;">${
 
             isin}${sec?.wkn ? (' · WKN ' + sec.wkn) : ''}${sec?.symbol ? (' · Kürzel ' + sec.symbol) : ''} · ${sec?.art || ''}</div>
-    <div class="hero">${stats.map(s => `<div class="stat ${s.cls || ''}"><div class="label">${s.label}</div><div class="value" style="font-size:19px;">${s.value}</div></div>`).join('')}</div>
+    <div class="hero">${stats.map(s => `<div class="stat ${s.cls || ''}" ${s.wide ? 'style="grid-column:1/-1; border-bottom:1px solid var(--border);"' : ''}><div class="label">${s.label}</div><div class="value" style="font-size:${s.wide ? '28' : '19'}px;">${s.value}</div></div>`).join('')}</div>
     <h2 class="section-title">Bestand im Zeitverlauf</h2>
     <div class="card chartbox">${
             sharesChartSVG(chartPoints)}</div>
