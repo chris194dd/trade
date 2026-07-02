@@ -8190,7 +8190,8 @@
             let amount,
                 meta;
             if (a.type === 'buy' || a.type === 'sell') {
-                amount = (a.type === 'buy' ? '−' : '+') + fmtEUR(Math.abs(a.amount + (a.fee || 0)));
+                const displayAmt = a.type === 'buy' ? a.amount + (a.fee || 0) : a.amount - (a.fee || 0);
+                amount = (a.type === 'buy' ? '−' : '+') + fmtEUR(Math.abs(displayAmt));
                 const kurswert = detail?.kurswert != null ? fmtEUR(detail.kurswert) : fmtEUR(a.price);
                 const einkaufswert = detail?.einkaufswert != null ? fmtEUR(detail.einkaufswert) : '—';
                 const wertLabel = a.type === 'sell' ? 'Verkaufskurs' : 'Kaufkurs';
