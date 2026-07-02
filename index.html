@@ -7052,6 +7052,12 @@
                         amount: a.amount
                     });
             }
+            for (const c of state.costs.filter(c => c.isin === isin)) {
+                flows.push({
+                    date: c.date,
+                    amount: c.amount
+                }); // costs are negative amounts
+            }
             const p = computePositions()[isin];
             const price = state.prices[isin]?.price;
             if (p && p.shares > 1e-9 && price)
@@ -8089,7 +8095,8 @@
                 };
             });
 
-            const totalResult = (upl || 0) + pos.realizedPL + pos.dividends;
+            const secCosts = state.costs.filter(c => c.isin === isin).reduce((s, c) => s + c.amount, 0);
+            const totalResult = (upl || 0) + pos.realizedPL + pos.dividends + secCosts;
             const totalResultPct = pos.totalBuyVolume > 0 ? totalResult / pos.totalBuyVolume * 100 : null;
             const tileCls = v => v == null ? '' : (v >= 0 ? 'tile-pos' : 'tile-neg');
             const stats = [
@@ -8152,6 +8159,11 @@
                 label: 'Dividenden gesamt',
                 value: fmtEUR(pos.dividends)
             },
+            ...(secCosts !== 0 ? [{
+                label: 'Depotkosten gesamt',
+                value: fmtEUR(secCosts),
+                cls: tileCls(secCosts)
+            }] : []),
             ];
 
             document.getElementById('detailContent').innerHTML = `
